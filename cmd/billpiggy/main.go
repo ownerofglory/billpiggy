@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"cvthis-backend/config"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/caarlos0/env/v11"
 	"github.com/go-chi/chi/v5"
+	"github.com/ownerofglory/billpiggy/config"
 	"github.com/ownerofglory/billpiggy/internal/adapter/http/v1/handler"
 )
 
