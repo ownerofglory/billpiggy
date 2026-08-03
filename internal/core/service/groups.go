@@ -3,11 +3,12 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
+	"time"
+
 	"github.com/google/uuid"
 	"github.com/ownerofglory/billpiggy/internal/core/domain"
 	"github.com/ownerofglory/billpiggy/internal/core/port/outbound"
-	"strings"
-	"time"
 )
 
 // GroupService applies administrator ownership and super-admin visibility rules.

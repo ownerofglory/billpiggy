@@ -70,6 +70,26 @@ definitions:
     - ExpenseConfirmed
     - ExpenseShared
     - ExpenseReimbursed
+  domain.UserGroup:
+    properties:
+      createdAt:
+        description: CreatedAt records when the group was created.
+        type: string
+      createdBy:
+        description: CreatedBy identifies the administrator who owns the group.
+        type: string
+      id:
+        description: ID uniquely identifies the group.
+        type: string
+      memberIDs:
+        description: MemberIDs lists users permitted to view shared items.
+        items:
+          type: string
+        type: array
+      name:
+        description: Name is the administrator-visible group name.
+        type: string
+    type: object
   domain.UserRole:
     enum:
     - member
@@ -87,6 +107,15 @@ definitions:
       password:
         type: string
       token:
+        type: string
+    type: object
+  handler.createGroupRequest:
+    properties:
+      member_ids:
+        items:
+          type: string
+        type: array
+      name:
         type: string
     type: object
   handler.currentUserResponse:
@@ -430,6 +459,59 @@ paths:
       summary: Update expense
       tags:
       - expenses
+  /billpiggy/api/v1/groups/:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/domain.UserGroup'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List visible groups
+      tags:
+      - groups
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Group
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.createGroupRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/domain.UserGroup'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create group
+      tags:
+      - groups
+      - administration
   /billpiggy/api/v1/version:
     get:
       produces:
