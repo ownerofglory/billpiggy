@@ -14,6 +14,11 @@ type BillPiggyAppConfig struct {
 	SMTPUsername                string `env:"SMTP_USERNAME"`
 	SMTPPassword                string `env:"SMTP_PASSWORD"`
 	SMTPFrom                    string `env:"SMTP_FROM"`
+	MinIOEndpoint               string `env:"MINIO_ENDPOINT"`
+	MinIOAccessKey              string `env:"MINIO_ACCESS_KEY"`
+	MinIOSecretKey              string `env:"MINIO_SECRET_KEY"`
+	MinIOBucket                 string `env:"MINIO_BUCKET" envDefault:"billpiggy"`
+	MinIOUseSSL                 bool   `env:"MINIO_USE_SSL" envDefault:"false"`
 }
 
 // Validate rejects production configurations that could silently lose state or sign unsafe tokens.
