@@ -1,0 +1,61 @@
+name: Apply production infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Terraform action to run
+        required: true
+        type: choice
+        options: [plan, apply]
+      confirm:
+        description: Type APPLY when action is apply
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  infrastructure:
+    runs-on: ubuntu-22.04
+    environment: production
+    defaults:
+      run:
+        working-directory: infra/terraform
+    env:
+      KUBERNETES_CA_DATA: ${{ secrets.KUBERNETES_CA_DATA }}
+      KUBERNETES_CLUSTER_SERVER_URL: ${{ secrets.KUBERNETES_CLUSTER_SERVER_URL }}
+      KUBERNETES_NAMESPACE: ${{ secrets.KUBERNETES_NAMESPACE }}
+      KUBERNETES_CLIENT_CA_DATA: ${{ secrets.KUBERNETES_CLIENT_CA_DATA }}
+      KUBERNETES_CLIENT_KEY_DATA: ${{ secrets.KUBERNETES_CLIENT_KEY_DATA }}
+      TF_HTTP_ADDRESS: ${{ secrets.TF_HTTP_ADDRESS }}
+      TF_HTTP_USERNAME: ${{ secrets.TF_HTTP_USERNAME }}
+      TF_HTTP_PASSWORD: ${{ secrets.TF_HTTP_PASSWORD }}
+      TF_HTTP_LOCK_ADDRESS: ${{ secrets.TF_HTTP_LOCK_ADDRESS }}
+      TF_HTTP_UNLOCK_ADDRESS: ${{ secrets.TF_HTTP_UNLOCK_ADDRESS }}
+      TF_VAR_postgres_password: ${{ secrets.POSTGRES_PASSWORD }}
+      TF_VAR_minio_root_user: ${{ secrets.MINIO_ROOT_USER }}
+      TF_VAR_minio_root_password: ${{ secrets.MINIO_ROOT_PASSWORD }}
+      TF_VAR_namespace: ${{ vars.INFRASTRUCTURE_NAMESPACE || 'billpiggy-infra' }}
+      TF_VAR_storage_class: ${{ vars.K3S_STORAGE_CLASS || 'local-path' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure cluster access
+        run: envsubst < ../../.kube/config > "$RUNNER_TEMP/kubeconfig"
+      - uses: hashicorp/setup-terraform@v3
+      - name: Validate Terraform
+        env:
+          TF_VAR_kubeconfig_path: ${{ runner.temp }}/kubeconfig
+        run: |
+          terraform init -input=false
+          terraform validate -no-color
+      - name: Plan infrastructure
+        env:
+          TF_VAR_kubeconfig_path: ${{ runner.temp }}/kubeconfig
+        run: terraform plan -input=false -out=tfplan
+      - name: Apply infrastructure
+        if: ${{ inputs.action == 'apply' && inputs.confirm == 'APPLY' }}
+        env:
+          TF_VAR_kubeconfig_path: ${{ runner.temp }}/kubeconfig
+        run: terraform apply -input=false tfplan
