@@ -1,0 +1,27 @@
+name: Publish development Helm chart
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - id: metadata
+        shell: bash
+        run: |
+          owner="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          echo "version=0.1.0-dev.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "registry=oci://ghcr.io/$owner/helm-charts" >> "$GITHUB_OUTPUT"
+      - name: Log in to GitHub Container Registry
+        run: echo '${{ secrets.GITHUB_TOKEN }}' | helm registry login ghcr.io -u '${{ github.actor }}' --password-stdin
+      - name: Package and push chart
+        run: |
+          helm package charts/billpiggy --version '${{ steps.metadata.outputs.version }}' --app-version '${{ github.sha }}'
+          helm push billpiggy-'${{ steps.metadata.outputs.version }}'.tgz '${{ steps.metadata.outputs.registry }}'
