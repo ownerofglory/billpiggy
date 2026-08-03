@@ -1,0 +1,20 @@
+basePath: /
+info:
+  contact: {}
+  description: API for personal cost tracking.
+  title: BillPiggy API
+  version: "1.0"
+paths:
+  /billpiggy/api/v1/version:
+    get:
+      produces:
+      - text/plain
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+      summary: Get application version
+      tags:
+      - health
+swagger: "2.0"

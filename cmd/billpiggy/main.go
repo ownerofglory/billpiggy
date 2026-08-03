@@ -16,6 +16,10 @@ import (
 	"github.com/ownerofglory/billpiggy/internal/adapter/inbound/http/v1/handler"
 )
 
+// @title			BillPiggy API
+// @version		1.0
+// @description	API for personal cost tracking.
+// @BasePath		/
 func main() {
 	slog.Info("Starting app")
 
