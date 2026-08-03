@@ -12,7 +12,10 @@ type IdentityRepository interface {
 	CountSuperAdmins(ctx context.Context) (int, error)
 	GetUserByID(ctx context.Context, id string) (domain.AppUser, error)
 	GetUserByEmail(ctx context.Context, email string) (domain.AppUser, error)
+	ListUsers(ctx context.Context) ([]domain.AppUser, error)
 	CreateUser(ctx context.Context, user domain.AppUser) error
+	UpdateUser(ctx context.Context, user domain.AppUser) error
+	DeleteUser(ctx context.Context, userID string) error
 	GetInvitationByTokenHash(ctx context.Context, tokenHash string) (domain.Invitation, error)
 	CreateInvitation(ctx context.Context, invitation domain.Invitation) error
 	AcceptInvitation(ctx context.Context, invitationID string, user domain.AppUser) error

@@ -49,14 +49,16 @@ func (r UserRole) Allows(permission Permission) bool {
 
 // AppUser is the identity projection used by the application layer.
 type AppUser struct {
-	ID            string
-	Email         string
-	PasswordHash  string
-	DisplayName   string
-	Role          UserRole
-	AccessBlocked bool
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	ID                        string
+	Email                     string
+	PasswordHash              string
+	DisplayName               string
+	ProfileImageObjectKey     string
+	Role                      UserRole
+	AccessBlocked             bool
+	EmailNotificationsEnabled bool
+	CreatedAt                 time.Time
+	UpdatedAt                 time.Time
 }
 
 // Invitation permits a specific email address to create an account.

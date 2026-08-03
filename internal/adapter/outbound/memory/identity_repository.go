@@ -64,6 +64,17 @@ func (r *IdentityRepository) GetUserByEmail(_ context.Context, email string) (do
 	return r.usersByID[id], nil
 }
 
+// ListUsers returns all active user projections.
+func (r *IdentityRepository) ListUsers(_ context.Context) ([]domain.AppUser, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	values := make([]domain.AppUser, 0, len(r.usersByID))
+	for _, user := range r.usersByID {
+		values = append(values, user)
+	}
+	return values, nil
+}
+
 func (r *IdentityRepository) CreateUser(_ context.Context, user domain.AppUser) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -75,6 +86,38 @@ func (r *IdentityRepository) CreateUser(_ context.Context, user domain.AppUser) 
 	}
 	r.usersByID[user.ID] = user
 	r.userIDByEmail[user.Email] = user.ID
+	return nil
+}
+
+// UpdateUser replaces an existing user projection.
+func (r *IdentityRepository) UpdateUser(_ context.Context, user domain.AppUser) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	previous, exists := r.usersByID[user.ID]
+	if !exists {
+		return errNotFound
+	}
+	if previous.Email != user.Email {
+		if existing, exists := r.userIDByEmail[user.Email]; exists && existing != user.ID {
+			return errors.New("user email already exists")
+		}
+		delete(r.userIDByEmail, previous.Email)
+		r.userIDByEmail[user.Email] = user.ID
+	}
+	r.usersByID[user.ID] = user
+	return nil
+}
+
+// DeleteUser removes an active user projection.
+func (r *IdentityRepository) DeleteUser(_ context.Context, userID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	user, exists := r.usersByID[userID]
+	if !exists {
+		return errNotFound
+	}
+	delete(r.usersByID, userID)
+	delete(r.userIDByEmail, user.Email)
 	return nil
 }
 

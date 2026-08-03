@@ -30,24 +30,68 @@ func (r *IdentityRepository) CountSuperAdmins(ctx context.Context) (int, error) 
 }
 
 func (r *IdentityRepository) GetUserByID(ctx context.Context, id string) (domain.AppUser, error) {
-	return r.getUser(ctx, `select id::text, email, password_hash, display_name, role::text, access_blocked, created_at, updated_at from identity.users where id = $1 and deleted_at is null`, id)
+	return r.getUser(ctx, `select id::text, email, password_hash, display_name, coalesce(profile_image_object_key, ''), role::text, access_blocked, email_notifications_enabled, created_at, updated_at from identity.users where id = $1 and deleted_at is null`, id)
 }
 
 func (r *IdentityRepository) GetUserByEmail(ctx context.Context, email string) (domain.AppUser, error) {
-	return r.getUser(ctx, `select id::text, email, password_hash, display_name, role::text, access_blocked, created_at, updated_at from identity.users where email = $1 and deleted_at is null`, email)
+	return r.getUser(ctx, `select id::text, email, password_hash, display_name, coalesce(profile_image_object_key, ''), role::text, access_blocked, email_notifications_enabled, created_at, updated_at from identity.users where email = $1 and deleted_at is null`, email)
 }
 
 func (r *IdentityRepository) getUser(ctx context.Context, query string, argument any) (domain.AppUser, error) {
 	var user domain.AppUser
 	var role string
-	err := r.pool.QueryRow(ctx, query, argument).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.DisplayName, &role, &user.AccessBlocked, &user.CreatedAt, &user.UpdatedAt)
+	err := r.pool.QueryRow(ctx, query, argument).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.DisplayName, &user.ProfileImageObjectKey, &role, &user.AccessBlocked, &user.EmailNotificationsEnabled, &user.CreatedAt, &user.UpdatedAt)
 	user.Role = domain.UserRole(role)
 	return user, err
+}
+
+// ListUsers returns all active user projections for administration.
+func (r *IdentityRepository) ListUsers(ctx context.Context) ([]domain.AppUser, error) {
+	rows, err := r.pool.Query(ctx, `select id::text, email, password_hash, display_name, coalesce(profile_image_object_key, ''), role::text, access_blocked, email_notifications_enabled, created_at, updated_at from identity.users where deleted_at is null order by created_at`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	values := []domain.AppUser{}
+	for rows.Next() {
+		var user domain.AppUser
+		var role string
+		if err := rows.Scan(&user.ID, &user.Email, &user.PasswordHash, &user.DisplayName, &user.ProfileImageObjectKey, &role, &user.AccessBlocked, &user.EmailNotificationsEnabled, &user.CreatedAt, &user.UpdatedAt); err != nil {
+			return nil, err
+		}
+		user.Role = domain.UserRole(role)
+		values = append(values, user)
+	}
+	return values, rows.Err()
 }
 
 func (r *IdentityRepository) CreateUser(ctx context.Context, user domain.AppUser) error {
 	_, err := r.pool.Exec(ctx, `insert into identity.users (id, email, password_hash, display_name, role, access_blocked, created_at, updated_at) values ($1, $2, $3, $4, $5, $6, $7, $8)`, user.ID, user.Email, user.PasswordHash, user.DisplayName, user.Role, user.AccessBlocked, user.CreatedAt, user.UpdatedAt)
 	return err
+}
+
+// UpdateUser replaces profile, authorization, and notification preference fields.
+func (r *IdentityRepository) UpdateUser(ctx context.Context, user domain.AppUser) error {
+	command, err := r.pool.Exec(ctx, `update identity.users set email=$2,password_hash=$3,display_name=$4,profile_image_object_key=nullif($5,''),role=$6,access_blocked=$7,email_notifications_enabled=$8,updated_at=$9 where id=$1 and deleted_at is null`, user.ID, user.Email, user.PasswordHash, user.DisplayName, user.ProfileImageObjectKey, user.Role, user.AccessBlocked, user.EmailNotificationsEnabled, user.UpdatedAt)
+	if err != nil {
+		return err
+	}
+	if command.RowsAffected() != 1 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
+
+// DeleteUser soft-deletes a user projection.
+func (r *IdentityRepository) DeleteUser(ctx context.Context, userID string) error {
+	command, err := r.pool.Exec(ctx, `update identity.users set deleted_at=now(),updated_at=now() where id=$1 and deleted_at is null`, userID)
+	if err != nil {
+		return err
+	}
+	if command.RowsAffected() != 1 {
+		return pgx.ErrNoRows
+	}
+	return nil
 }
 
 func (r *IdentityRepository) GetInvitationByTokenHash(ctx context.Context, tokenHash string) (domain.Invitation, error) {

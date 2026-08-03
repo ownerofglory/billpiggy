@@ -245,7 +245,77 @@ func newUser(email, password, displayName string, role domain.UserRole, now time
 	if err != nil {
 		return domain.AppUser{}, fmt.Errorf("hash password: %w", err)
 	}
-	return domain.AppUser{ID: uuid.NewString(), Email: normalizeEmail(email), PasswordHash: string(hash), DisplayName: strings.TrimSpace(displayName), Role: role, CreatedAt: now, UpdatedAt: now}, nil
+	return domain.AppUser{ID: uuid.NewString(), Email: normalizeEmail(email), PasswordHash: string(hash), DisplayName: strings.TrimSpace(displayName), Role: role, EmailNotificationsEnabled: true, CreatedAt: now, UpdatedAt: now}, nil
+}
+
+// ListUsers returns active users for an administrator.
+func (s *AuthService) ListUsers(ctx context.Context, actor domain.AppUser) ([]domain.AppUser, error) {
+	if !actor.Role.Allows(domain.PermissionUsersManage) {
+		return nil, ErrForbidden
+	}
+	return s.repository.ListUsers(ctx)
+}
+
+// UpdateProfile changes a user's own profile and notification preference.
+func (s *AuthService) UpdateProfile(ctx context.Context, userID, displayName, email string, notifications bool) (domain.AppUser, error) {
+	user, err := s.repository.GetUserByID(ctx, userID)
+	if err != nil {
+		return domain.AppUser{}, ErrNotFound
+	}
+	user.DisplayName, user.Email, user.EmailNotificationsEnabled, user.UpdatedAt = strings.TrimSpace(displayName), normalizeEmail(email), notifications, s.now()
+	if user.DisplayName == "" || user.Email == "" {
+		return domain.AppUser{}, ErrConflict
+	}
+	if err := s.repository.UpdateUser(ctx, user); err != nil {
+		return domain.AppUser{}, err
+	}
+	return user, nil
+}
+
+// GetProfile returns the current user's profile projection.
+func (s *AuthService) GetProfile(ctx context.Context, userID string) (domain.AppUser, error) {
+	user, err := s.repository.GetUserByID(ctx, userID)
+	if err != nil {
+		return domain.AppUser{}, ErrNotFound
+	}
+	return user, nil
+}
+
+// ManageUser changes a member/admin role or access state while preserving super-admin protections.
+func (s *AuthService) ManageUser(ctx context.Context, actor domain.AppUser, userID string, role domain.UserRole, blocked bool) (domain.AppUser, error) {
+	if !actor.Role.Allows(domain.PermissionUsersManage) {
+		return domain.AppUser{}, ErrForbidden
+	}
+	user, err := s.repository.GetUserByID(ctx, userID)
+	if err != nil {
+		return domain.AppUser{}, ErrNotFound
+	}
+	if user.Role == domain.RoleSuperAdmin || role == domain.RoleSuperAdmin {
+		return domain.AppUser{}, ErrForbidden
+	}
+	if !validRole(role) || role == domain.RoleSuperAdmin {
+		return domain.AppUser{}, ErrConflict
+	}
+	user.Role, user.AccessBlocked, user.UpdatedAt = role, blocked, s.now()
+	if err := s.repository.UpdateUser(ctx, user); err != nil {
+		return domain.AppUser{}, err
+	}
+	return user, nil
+}
+
+// DeleteUser removes a member or administrator but never a super-admin.
+func (s *AuthService) DeleteUser(ctx context.Context, actor domain.AppUser, userID string) error {
+	if !actor.Role.Allows(domain.PermissionUsersManage) {
+		return ErrForbidden
+	}
+	user, err := s.repository.GetUserByID(ctx, userID)
+	if err != nil {
+		return ErrNotFound
+	}
+	if user.Role == domain.RoleSuperAdmin {
+		return ErrForbidden
+	}
+	return s.repository.DeleteUser(ctx, userID)
 }
 
 func randomToken() (string, error) {

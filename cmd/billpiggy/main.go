@@ -86,6 +86,7 @@ func main() {
 	// HTTP handler setup
 	r.Get(handler.GetVersionPath, handler.HandleGetVersion)
 	handler.RegisterAuthRoutes(r, authService, cfg.Environment == "production")
+	handler.RegisterUserRoutes(r, authService, handler.NewAuthMiddleware(authService))
 	handler.RegisterExpenseRoutes(r, expenseService, handler.NewAuthMiddleware(authService))
 	handler.RegisterBudgetRoutes(r, budgetService, handler.NewAuthMiddleware(authService))
 	handler.RegisterAnalyticsRoutes(r, analyticsService, handler.NewAuthMiddleware(authService))
