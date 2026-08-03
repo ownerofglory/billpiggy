@@ -70,6 +70,25 @@ definitions:
         description: CreatedAt and UpdatedAt record projection timestamps.
         type: string
     type: object
+  domain.BudgetSuggestion:
+    properties:
+      budgetID:
+        type: string
+      categoryID:
+        type: string
+      currency:
+        type: string
+      limitMinor:
+        format: int64
+        type: integer
+      message:
+        type: string
+      percentUsed:
+        type: integer
+      spentMinor:
+        format: int64
+        type: integer
+    type: object
   domain.ExpenseCategory:
     properties:
       color:
@@ -411,6 +430,26 @@ paths:
               type: string
             type: object
       summary: Get expense analytics
+      tags:
+      - analytics
+  /billpiggy/api/v1/analytics/suggestions:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/domain.BudgetSuggestion'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get budget suggestions
       tags:
       - analytics
   /billpiggy/api/v1/assistant/chat:

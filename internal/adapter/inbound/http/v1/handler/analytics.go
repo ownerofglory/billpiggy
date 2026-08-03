@@ -18,7 +18,26 @@ func RegisterAnalyticsRoutes(router chi.Router, analytics *service.AnalyticsServ
 	router.Route(basePathV1+"/analytics", func(routes chi.Router) {
 		routes.Use(middleware.RequireAuthentication, permission(middleware, domain.PermissionAnalyticsRead))
 		routes.Get("/expenses", h.listExpenses)
+		routes.Get("/suggestions", h.listSuggestions)
 	})
+}
+
+// listSuggestions returns budget threshold recommendations for the current month.
+//
+//	@Summary	Get budget suggestions
+//	@Tags		analytics
+//	@Produce	json
+//	@Success	200	{array}		domain.BudgetSuggestion
+//	@Failure	401	{object}	map[string]string
+//	@Router		/billpiggy/api/v1/analytics/suggestions [get]
+func (h analyticsHandler) listSuggestions(w http.ResponseWriter, r *http.Request) {
+	identity, _ := sharedauth.IdentityFromContext(r.Context())
+	values, err := h.service.ListBudgetSuggestions(r.Context(), identity.Subject)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "could not create suggestions")
+		return
+	}
+	writeJSON(w, http.StatusOK, values)
 }
 
 type analyticsHandler struct{ service *service.AnalyticsService }

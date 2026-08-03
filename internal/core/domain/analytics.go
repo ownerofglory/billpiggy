@@ -35,3 +35,10 @@ type ExpenseRollup struct {
 	// ExpenseCount is the number of included expenses.
 	ExpenseCount int64
 }
+
+// BudgetSuggestion identifies a budget that is approaching or over its threshold.
+type BudgetSuggestion struct {
+	BudgetID, CategoryID, Currency, Message string
+	SpentMinor, LimitMinor                  int64
+	PercentUsed                             int
+}

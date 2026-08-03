@@ -73,7 +73,7 @@ func main() {
 		slog.Error("configure budgets", "error", err)
 		os.Exit(1)
 	}
-	analyticsService, err := service.NewAnalyticsService(analyticsRepository)
+	analyticsService, err := service.NewAnalyticsService(analyticsRepository, budgetRepository)
 	if err != nil {
 		slog.Error("configure analytics", "error", err)
 		os.Exit(1)
