@@ -10,6 +10,10 @@ type BillPiggyAppConfig struct {
 	JWTSecret                   string `env:"JWT_SECRET"`
 	BootstrapSuperAdminEmail    string `env:"BOOTSTRAP_SUPER_ADMIN_EMAIL"`
 	BootstrapSuperAdminPassword string `env:"BOOTSTRAP_SUPER_ADMIN_PASSWORD"`
+	SMTPAddress                 string `env:"SMTP_ADDRESS"`
+	SMTPUsername                string `env:"SMTP_USERNAME"`
+	SMTPPassword                string `env:"SMTP_PASSWORD"`
+	SMTPFrom                    string `env:"SMTP_FROM"`
 }
 
 // Validate rejects production configurations that could silently lose state or sign unsafe tokens.

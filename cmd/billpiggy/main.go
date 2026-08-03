@@ -19,6 +19,7 @@ import (
 	postgresadapter "github.com/ownerofglory/billpiggy/internal/adapter/outbound/postgres"
 	"github.com/ownerofglory/billpiggy/internal/core/port/outbound"
 	"github.com/ownerofglory/billpiggy/internal/core/service"
+	"github.com/ownerofglory/billpiggy/pkg/email"
 	"github.com/ownerofglory/billpiggy/pkg/health"
 )
 
@@ -44,7 +45,7 @@ func main() {
 	// Chi setup
 	r := chi.NewRouter()
 	healthRegistry := health.NewRegistry()
-	identityRepository, expenseRepository, budgetRepository, groupRepository, taxonomyRepository, analyticsRepository, eventStore, closeRepository := applicationStores(cfg, healthRegistry)
+	identityRepository, expenseRepository, budgetRepository, groupRepository, taxonomyRepository, analyticsRepository, notificationRepository, eventStore, closeRepository := applicationStores(cfg, healthRegistry)
 	defer closeRepository()
 	authService, err := service.NewAuthService(identityRepository, service.AuthConfig{
 		JWTSecret: cfg.JWTSecret, BootstrapSuperAdminEmail: cfg.BootstrapSuperAdminEmail, BootstrapSuperAdminPassword: cfg.BootstrapSuperAdminPassword,
@@ -81,6 +82,19 @@ func main() {
 	if err != nil {
 		slog.Error("configure taxonomy", "error", err)
 		os.Exit(1)
+	}
+	if cfg.SMTPAddress != "" {
+		notifications, err := service.NewNotificationService(notificationRepository)
+		if err != nil {
+			slog.Error("configure notifications", "error", err)
+			os.Exit(1)
+		}
+		sender, err := email.NewSMTPSender(cfg.SMTPAddress, cfg.SMTPUsername, cfg.SMTPPassword, cfg.SMTPFrom)
+		if err != nil {
+			slog.Error("configure smtp", "error", err)
+			os.Exit(1)
+		}
+		go deliverNotifications(notifications, identityRepository, sender)
 	}
 
 	// HTTP handler setup
@@ -130,10 +144,10 @@ func main() {
 	slog.Info("App finished")
 }
 
-func applicationStores(cfg config.BillPiggyAppConfig, healthRegistry *health.Registry) (outbound.IdentityRepository, outbound.ExpenseRepository, outbound.BudgetRepository, outbound.GroupRepository, outbound.TaxonomyRepository, outbound.AnalyticsRepository, outbound.EventStore, func()) {
+func applicationStores(cfg config.BillPiggyAppConfig, healthRegistry *health.Registry) (outbound.IdentityRepository, outbound.ExpenseRepository, outbound.BudgetRepository, outbound.GroupRepository, outbound.TaxonomyRepository, outbound.AnalyticsRepository, outbound.NotificationRepository, outbound.EventStore, func()) {
 	if cfg.DatabaseURL == "" {
 		slog.Warn("using in-memory identity storage; set DATABASE_URL for persistent data")
-		return memory.NewIdentityRepository(), memory.NewExpenseRepository(), memory.NewBudgetRepository(), memory.NewGroupRepository(), memory.NewTaxonomyRepository(), memory.NewAnalyticsRepository(), memory.NewEventStore(), func() {}
+		return memory.NewIdentityRepository(), memory.NewExpenseRepository(), memory.NewBudgetRepository(), memory.NewGroupRepository(), memory.NewTaxonomyRepository(), memory.NewAnalyticsRepository(), memory.NewNotificationRepository(), memory.NewEventStore(), func() {}
 	}
 	pool, err := pgxpool.New(context.Background(), cfg.DatabaseURL)
 	if err != nil {
@@ -142,7 +156,18 @@ func applicationStores(cfg config.BillPiggyAppConfig, healthRegistry *health.Reg
 	}
 	identity := postgresadapter.NewIdentityRepository(pool)
 	healthRegistry.Register("postgres", identity.Ping)
-	return identity, postgresadapter.NewExpenseRepository(pool), postgresadapter.NewBudgetRepository(pool), postgresadapter.NewGroupRepository(pool), postgresadapter.NewTaxonomyRepository(pool), postgresadapter.NewAnalyticsRepository(pool), postgresadapter.NewEventStore(pool), pool.Close
+	return identity, postgresadapter.NewExpenseRepository(pool), postgresadapter.NewBudgetRepository(pool), postgresadapter.NewGroupRepository(pool), postgresadapter.NewTaxonomyRepository(pool), postgresadapter.NewAnalyticsRepository(pool), postgresadapter.NewNotificationRepository(pool), postgresadapter.NewEventStore(pool), pool.Close
+}
+
+func deliverNotifications(notifications *service.NotificationService, users outbound.IdentityRepository, sender service.EmailSender) {
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for {
+		if err := notifications.DeliverPending(context.Background(), users, sender, 25); err != nil {
+			slog.Error("deliver notifications", "error", err)
+		}
+		<-ticker.C
+	}
 }
 
 func logLevel(value string) slog.Level {
