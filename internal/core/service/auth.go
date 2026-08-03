@@ -281,6 +281,22 @@ func (s *AuthService) GetProfile(ctx context.Context, userID string) (domain.App
 	return user, nil
 }
 
+// UpdateProfileImage records the object key for the current user's profile image.
+func (s *AuthService) UpdateProfileImage(ctx context.Context, userID, objectKey string) (domain.AppUser, error) {
+	user, err := s.repository.GetUserByID(ctx, userID)
+	if err != nil {
+		return domain.AppUser{}, ErrNotFound
+	}
+	if strings.TrimSpace(objectKey) == "" {
+		return domain.AppUser{}, ErrConflict
+	}
+	user.ProfileImageObjectKey, user.UpdatedAt = objectKey, s.now()
+	if err := s.repository.UpdateUser(ctx, user); err != nil {
+		return domain.AppUser{}, err
+	}
+	return user, nil
+}
+
 // ManageUser changes a member/admin role or access state while preserving super-admin protections.
 func (s *AuthService) ManageUser(ctx context.Context, actor domain.AppUser, userID string, role domain.UserRole, blocked bool) (domain.AppUser, error) {
 	if !actor.Role.Allows(domain.PermissionUsersManage) {

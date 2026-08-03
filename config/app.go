@@ -26,6 +26,9 @@ func (c BillPiggyAppConfig) Validate() error {
 	if c.Environment == "production" && c.DatabaseURL == "" {
 		return fmt.Errorf("DATABASE_URL is required in production")
 	}
+	if c.Environment == "production" && (c.MinIOEndpoint == "" || c.MinIOAccessKey == "" || c.MinIOSecretKey == "") {
+		return fmt.Errorf("MinIO configuration is required in production")
+	}
 	if len(c.JWTSecret) < 32 {
 		return fmt.Errorf("JWT_SECRET must contain at least 32 bytes")
 	}

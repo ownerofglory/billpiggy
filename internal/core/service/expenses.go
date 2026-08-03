@@ -116,6 +116,25 @@ func (s *ExpenseService) GetExpense(ctx context.Context, ownerID, expenseID stri
 	return expense, nil
 }
 
+// AttachReceipt records an uploaded receipt object for an owner-scoped expense.
+func (s *ExpenseService) AttachReceipt(ctx context.Context, ownerID, expenseID, objectKey string) (domain.ExpenseRecord, error) {
+	expense, err := s.repository.GetExpense(ctx, ownerID, expenseID)
+	if err != nil {
+		return domain.ExpenseRecord{}, ErrNotFound
+	}
+	if strings.TrimSpace(objectKey) == "" {
+		return domain.ExpenseRecord{}, ErrInvalidExpense
+	}
+	expense.ReceiptObjectKey, expense.UpdatedAt = objectKey, s.now()
+	if err := s.events.Append(ctx, newExpenseEvent("expense_updated", expense.ID, ownerID, domain.ExpenseUpdated{Expense: expense}, expense.UpdatedAt)); err != nil {
+		return domain.ExpenseRecord{}, err
+	}
+	if err := s.repository.UpdateExpense(ctx, expense); err != nil {
+		return domain.ExpenseRecord{}, err
+	}
+	return expense, nil
+}
+
 // CreateExpenseCommand holds all user-entered expense data.
 type CreateExpenseCommand struct {
 	Title, Currency, CategoryID, CategoryName, SharedGroupID, Address, ReceiptObjectKey string

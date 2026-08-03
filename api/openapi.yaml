@@ -839,6 +839,31 @@ paths:
       summary: Update expense
       tags:
       - expenses
+  /billpiggy/api/v1/expenses/{expenseID}/receipt:
+    post:
+      consumes:
+      - multipart/form-data
+      parameters:
+      - description: Expense ID
+        in: path
+        name: expenseID
+        required: true
+        type: string
+      - description: Receipt image or PDF, maximum 10 MiB
+        in: formData
+        name: file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/domain.ExpenseRecord'
+      summary: Upload expense receipt
+      tags:
+      - expenses
   /billpiggy/api/v1/groups/:
     get:
       produces:
@@ -1055,6 +1080,26 @@ paths:
           schema:
             $ref: '#/definitions/handler.userResponseBody'
       summary: Update profile
+      tags:
+      - users
+  /billpiggy/api/v1/users/me/profile-image:
+    post:
+      consumes:
+      - multipart/form-data
+      parameters:
+      - description: Image file, maximum 10 MiB
+        in: formData
+        name: file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.userResponseBody'
+      summary: Upload profile image
       tags:
       - users
   /billpiggy/api/v1/version:

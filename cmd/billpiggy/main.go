@@ -16,6 +16,7 @@ import (
 	"github.com/ownerofglory/billpiggy/config"
 	"github.com/ownerofglory/billpiggy/internal/adapter/inbound/http/v1/handler"
 	"github.com/ownerofglory/billpiggy/internal/adapter/outbound/memory"
+	minioadapter "github.com/ownerofglory/billpiggy/internal/adapter/outbound/minio"
 	postgresadapter "github.com/ownerofglory/billpiggy/internal/adapter/outbound/postgres"
 	"github.com/ownerofglory/billpiggy/internal/core/port/outbound"
 	"github.com/ownerofglory/billpiggy/internal/core/service"
@@ -47,6 +48,11 @@ func main() {
 	healthRegistry := health.NewRegistry()
 	identityRepository, expenseRepository, budgetRepository, groupRepository, taxonomyRepository, analyticsRepository, notificationRepository, eventStore, projectEvents, closeRepository := applicationStores(cfg, healthRegistry)
 	defer closeRepository()
+	objectStore, err := applicationObjectStore(cfg, healthRegistry)
+	if err != nil {
+		slog.Error("configure object storage", "error", err)
+		os.Exit(1)
+	}
 	authService, err := service.NewAuthService(identityRepository, service.AuthConfig{
 		JWTSecret: cfg.JWTSecret, BootstrapSuperAdminEmail: cfg.BootstrapSuperAdminEmail, BootstrapSuperAdminPassword: cfg.BootstrapSuperAdminPassword,
 	})
@@ -104,6 +110,7 @@ func main() {
 	r.Get(handler.GetVersionPath, handler.HandleGetVersion)
 	handler.RegisterAuthRoutes(r, authService, cfg.Environment == "production")
 	handler.RegisterUserRoutes(r, authService, handler.NewAuthMiddleware(authService))
+	handler.RegisterUploadRoutes(r, authService, expenseService, objectStore, handler.NewAuthMiddleware(authService))
 	handler.RegisterExpenseRoutes(r, expenseService, handler.NewAuthMiddleware(authService))
 	handler.RegisterBudgetRoutes(r, budgetService, handler.NewAuthMiddleware(authService))
 	handler.RegisterAnalyticsRoutes(r, analyticsService, handler.NewAuthMiddleware(authService))
@@ -145,6 +152,18 @@ func main() {
 	}
 
 	slog.Info("App finished")
+}
+
+func applicationObjectStore(cfg config.BillPiggyAppConfig, healthRegistry *health.Registry) (outbound.ObjectStore, error) {
+	if cfg.MinIOEndpoint == "" {
+		return memory.NewObjectStore(), nil
+	}
+	store, err := minioadapter.NewObjectStore(cfg.MinIOEndpoint, cfg.MinIOAccessKey, cfg.MinIOSecretKey, cfg.MinIOBucket, cfg.MinIOUseSSL)
+	if err != nil {
+		return nil, err
+	}
+	healthRegistry.Register("object_storage", store.Ping)
+	return store, nil
 }
 
 func applicationStores(cfg config.BillPiggyAppConfig, healthRegistry *health.Registry) (outbound.IdentityRepository, outbound.ExpenseRepository, outbound.BudgetRepository, outbound.GroupRepository, outbound.TaxonomyRepository, outbound.AnalyticsRepository, outbound.NotificationRepository, outbound.EventStore, func(context.Context) (int, error), func()) {
