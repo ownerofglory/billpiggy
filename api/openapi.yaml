@@ -70,6 +70,19 @@ definitions:
         description: CreatedAt and UpdatedAt record projection timestamps.
         type: string
     type: object
+  domain.ExpenseCategory:
+    properties:
+      color:
+        type: string
+      createdAt:
+        type: string
+      id:
+        type: string
+      isDefault:
+        type: boolean
+      name:
+        type: string
+    type: object
   domain.ExpenseItem:
     properties:
       amountMinor:
@@ -170,6 +183,17 @@ definitions:
     - ExpenseConfirmed
     - ExpenseShared
     - ExpenseReimbursed
+  domain.ExpenseTag:
+    properties:
+      color:
+        type: string
+      createdAt:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+    type: object
   domain.UserGroup:
     properties:
       createdAt:
@@ -298,6 +322,13 @@ definitions:
       access_token:
         type: string
       expires_at:
+        type: string
+    type: object
+  handler.taxonomyRequest:
+    properties:
+      color:
+        type: string
+      name:
         type: string
     type: object
   handler.userResponseBody:
@@ -804,6 +835,74 @@ paths:
       tags:
       - groups
       - administration
+  /billpiggy/api/v1/taxonomy/categories:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/domain.ExpenseCategory'
+            type: array
+      summary: List categories
+      tags:
+      - taxonomy
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Category
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.taxonomyRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/domain.ExpenseCategory'
+      summary: Create category
+      tags:
+      - taxonomy
+  /billpiggy/api/v1/taxonomy/tags:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/domain.ExpenseTag'
+            type: array
+      summary: List tags
+      tags:
+      - taxonomy
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Tag
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.taxonomyRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/domain.ExpenseTag'
+      summary: Create tag
+      tags:
+      - taxonomy
   /billpiggy/api/v1/version:
     get:
       produces:
