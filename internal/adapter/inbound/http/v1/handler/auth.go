@@ -17,7 +17,7 @@ import (
 // RegisterAuthRoutes mounts invitation-only authentication endpoints under the v1 path.
 func RegisterAuthRoutes(router chi.Router, authService *service.AuthService, cookieSecure bool) {
 	handler := authHandler{service: authService, cookieSecure: cookieSecure}
-	middleware := sharedauth.NewMiddleware(authenticator{service: authService}, authorizer{})
+	middleware := NewAuthMiddleware(authService)
 	router.Route(basePathV1+"/auth", func(routes chi.Router) {
 		routes.Post("/login", handler.login)
 		routes.Post("/refresh", handler.refresh)
@@ -28,6 +28,11 @@ func RegisterAuthRoutes(router chi.Router, authService *service.AuthService, coo
 			return middleware.RequirePermission(string(domain.PermissionUsersInvite), next)
 		}).Post("/invitations", handler.invite)
 	})
+}
+
+// NewAuthMiddleware adapts the application auth service to reusable HTTP middleware.
+func NewAuthMiddleware(authService *service.AuthService) *sharedauth.Middleware {
+	return sharedauth.NewMiddleware(authenticator{service: authService}, authorizer{})
 }
 
 type authHandler struct {

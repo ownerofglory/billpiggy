@@ -1,5 +1,75 @@
 basePath: /
 definitions:
+  domain.ExpenseItem:
+    properties:
+      amountMinor:
+        format: int64
+        type: integer
+      quantity:
+        type: string
+      title:
+        type: string
+    type: object
+  domain.ExpenseRecord:
+    properties:
+      address:
+        type: string
+      amountMinor:
+        format: int64
+        type: integer
+      categoryID:
+        type: string
+      categoryName:
+        type: string
+      createdAt:
+        type: string
+      currency:
+        type: string
+      deletedAt:
+        type: string
+      id:
+        type: string
+      items:
+        items:
+          $ref: '#/definitions/domain.ExpenseItem'
+        type: array
+      latitude:
+        format: float64
+        type: number
+      longitude:
+        format: float64
+        type: number
+      occurredAt:
+        type: string
+      ownerID:
+        type: string
+      receiptObjectKey:
+        type: string
+      sharedGroupID:
+        type: string
+      status:
+        $ref: '#/definitions/domain.ExpenseStatus'
+      tagIDs:
+        items:
+          type: string
+        type: array
+      title:
+        type: string
+      updatedAt:
+        type: string
+    type: object
+  domain.ExpenseStatus:
+    enum:
+    - draft
+    - confirmed
+    - shared
+    - reimbursed
+    type: string
+    x-enum-varnames:
+    - ExpenseDraft
+    - ExpenseConfirmed
+    - ExpenseShared
+    - ExpenseReimbursed
   domain.UserRole:
     enum:
     - member
@@ -26,6 +96,39 @@ definitions:
       id:
         type: string
       role:
+        type: string
+    type: object
+  handler.expenseRequest:
+    properties:
+      address:
+        type: string
+      amount_minor:
+        type: integer
+      category_id:
+        type: string
+      category_name:
+        type: string
+      currency:
+        type: string
+      items:
+        items:
+          $ref: '#/definitions/domain.ExpenseItem'
+        type: array
+      latitude:
+        type: number
+      longitude:
+        type: number
+      occurred_at:
+        type: string
+      shared_group_id:
+        type: string
+      status:
+        $ref: '#/definitions/domain.ExpenseStatus'
+      tag_ids:
+        items:
+          type: string
+        type: array
+      title:
         type: string
     type: object
   handler.invitationRequest:
@@ -194,6 +297,118 @@ paths:
       summary: Refresh session
       tags:
       - auth
+  /billpiggy/api/v1/expenses/:
+    get:
+      parameters:
+      - description: Search title or category
+        in: query
+        name: q
+        type: string
+      - description: Category ID
+        in: query
+        name: category_id
+        type: string
+      - collectionFormat: csv
+        description: Tag IDs
+        in: query
+        items:
+          type: string
+        name: tag_id
+        type: array
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/domain.ExpenseRecord'
+            type: array
+      summary: List expenses
+      tags:
+      - expenses
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Expense
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.expenseRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/domain.ExpenseRecord'
+      summary: Create expense
+      tags:
+      - expenses
+  /billpiggy/api/v1/expenses/{expenseID}:
+    delete:
+      parameters:
+      - description: Expense ID
+        in: path
+        name: expenseID
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      summary: Delete expense
+      tags:
+      - expenses
+    get:
+      parameters:
+      - description: Expense ID
+        in: path
+        name: expenseID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/domain.ExpenseRecord'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get expense
+      tags:
+      - expenses
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Expense ID
+        in: path
+        name: expenseID
+        required: true
+        type: string
+      - description: Expense
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.expenseRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/domain.ExpenseRecord'
+      summary: Update expense
+      tags:
+      - expenses
   /billpiggy/api/v1/version:
     get:
       produces:

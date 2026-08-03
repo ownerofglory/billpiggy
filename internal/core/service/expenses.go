@@ -107,6 +107,15 @@ func (s *ExpenseService) ListExpenses(ctx context.Context, filter outbound.Expen
 	return s.repository.ListExpenses(ctx, filter)
 }
 
+// GetExpense returns one expense only when it belongs to the authenticated owner.
+func (s *ExpenseService) GetExpense(ctx context.Context, ownerID, expenseID string) (domain.ExpenseRecord, error) {
+	expense, err := s.repository.GetExpense(ctx, ownerID, expenseID)
+	if err != nil {
+		return domain.ExpenseRecord{}, ErrNotFound
+	}
+	return expense, nil
+}
+
 // CreateExpenseCommand holds all user-entered expense data.
 type CreateExpenseCommand struct {
 	Title, Currency, CategoryID, CategoryName, SharedGroupID, Address, ReceiptObjectKey string

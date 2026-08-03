@@ -44,7 +44,7 @@ func main() {
 	// Chi setup
 	r := chi.NewRouter()
 	healthRegistry := health.NewRegistry()
-	identityRepository, closeRepository := identityRepository(cfg, healthRegistry)
+	identityRepository, expenseRepository, eventStore, closeRepository := applicationStores(cfg, healthRegistry)
 	defer closeRepository()
 	authService, err := service.NewAuthService(identityRepository, service.AuthConfig{
 		JWTSecret: cfg.JWTSecret, BootstrapSuperAdminEmail: cfg.BootstrapSuperAdminEmail, BootstrapSuperAdminPassword: cfg.BootstrapSuperAdminPassword,
@@ -57,10 +57,16 @@ func main() {
 		slog.Error("bootstrap authentication", "error", err)
 		os.Exit(1)
 	}
+	expenseService, err := service.NewExpenseService(expenseRepository, eventStore)
+	if err != nil {
+		slog.Error("configure expenses", "error", err)
+		os.Exit(1)
+	}
 
 	// HTTP handler setup
 	r.Get(handler.GetVersionPath, handler.HandleGetVersion)
 	handler.RegisterAuthRoutes(r, authService, cfg.Environment == "production")
+	handler.RegisterExpenseRoutes(r, expenseService, handler.NewAuthMiddleware(authService))
 	r.Get("/livez", healthRegistry.Live)
 	r.Get("/readyz", healthRegistry.Ready)
 	r.Get("/startupz", healthRegistry.Startup)
@@ -98,19 +104,19 @@ func main() {
 	slog.Info("App finished")
 }
 
-func identityRepository(cfg config.BillPiggyAppConfig, healthRegistry *health.Registry) (outbound.IdentityRepository, func()) {
+func applicationStores(cfg config.BillPiggyAppConfig, healthRegistry *health.Registry) (outbound.IdentityRepository, outbound.ExpenseRepository, outbound.EventStore, func()) {
 	if cfg.DatabaseURL == "" {
 		slog.Warn("using in-memory identity storage; set DATABASE_URL for persistent data")
-		return memory.NewIdentityRepository(), func() {}
+		return memory.NewIdentityRepository(), memory.NewExpenseRepository(), memory.NewEventStore(), func() {}
 	}
 	pool, err := pgxpool.New(context.Background(), cfg.DatabaseURL)
 	if err != nil {
 		slog.Error("connect postgres", "error", err)
 		os.Exit(1)
 	}
-	repository := postgresadapter.NewIdentityRepository(pool)
-	healthRegistry.Register("postgres", repository.Ping)
-	return repository, pool.Close
+	identity := postgresadapter.NewIdentityRepository(pool)
+	healthRegistry.Register("postgres", identity.Ping)
+	return identity, postgresadapter.NewExpenseRepository(pool), postgresadapter.NewEventStore(pool), pool.Close
 }
 
 func logLevel(value string) slog.Level {
