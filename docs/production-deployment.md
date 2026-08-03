@@ -1,0 +1,75 @@
+# Production deployment
+
+BillPiggy deploys to Kubernetes through the manual **Deploy Kubernetes production**
+workflow. The workflow installs a published OCI Helm chart and deploys the selected
+container image; it does not build images, push charts, or apply database migrations.
+
+Create a GitHub Environment named `production` and attach the deployment secrets and
+variables below to that environment. Environment protection rules are recommended so
+that production deployment requires approval.
+
+## GitHub Environment secrets
+
+| Secret | Required | Purpose |
+| --- | --- | --- |
+| `KUBERNETES_CA_DATA` | Yes | Base64-encoded Kubernetes cluster CA certificate. |
+| `KUBERNETES_CLUSTER_SERVER_URL` | Yes | Kubernetes API server URL. |
+| `KUBERNETES_NAMESPACE` | Yes | Namespace receiving the release, for example `billpiggy`. |
+| `KUBERNETES_CLIENT_CA_DATA` | Yes | Base64-encoded X.509 client certificate used by GitHub Actions. |
+| `KUBERNETES_CLIENT_KEY_DATA` | Yes | Base64-encoded private key matching the client certificate. |
+| `DATABASE_URL` | Yes | Production PostgreSQL connection string. |
+| `JWT_SECRET` | Yes | Random application signing secret with at least 32 bytes. |
+| `BOOTSTRAP_SUPER_ADMIN_EMAIL` | First deploy | Email address for the initial super-admin. |
+| `BOOTSTRAP_SUPER_ADMIN_PASSWORD` | First deploy | Strong password for the initial super-admin. |
+| `OPENAI_API_KEY` | Optional | Reserved for OpenAI-backed application capabilities. |
+| `SMTP_ADDRESS` | Optional | SMTP relay address including port. |
+| `SMTP_USERNAME` | Optional | SMTP login user. |
+| `SMTP_PASSWORD` | Optional | SMTP login password. |
+| `SMTP_FROM` | Optional | Sender address for BillPiggy notification email. |
+| `DOCKER_USER` | Image workflows | Docker Hub user used as the default image namespace. |
+| `DOCKER_TOKEN` | Image workflows | Docker Hub access token. |
+
+Keep the bootstrap credentials available after initial deployment. They are only used
+when no super-admin exists, but are needed if a newly provisioned database must be
+bootstrapped.
+
+## GitHub Environment or repository variables
+
+| Variable | Required | Example |
+| --- | --- | --- |
+| `DOCKER_IMAGE_NAME` | Recommended | `ownerofglory/billpiggy` |
+| `INGRESS_HOST` | Yes | `billpiggy.example.com` |
+| `INGRESS_CLASS_NAME` | Optional | `nginx` |
+| `INGRESS_CLUSTER_ISSUER` | Yes | `letsencrypt-prod` |
+| `INGRESS_TLS_SECRET_NAME` | Yes | `billpiggy-tls` |
+| `LOG_LEVEL` | Optional | `info` |
+
+## Database migrations
+
+Apply the ordered SQL migrations in [`migrations/`](../migrations) to production
+PostgreSQL before the first deployment and whenever a release adds a migration. The
+current deployment workflow deliberately does not run migrations; this prevents a
+GitHub-hosted runner from needing direct database network access. Use a controlled
+database administration path to run each `*.up.sql` file in numeric order.
+
+## Run a deployment
+
+1. Publish the release image through the Docker release workflow.
+2. Publish the matching Helm chart through the Helm release workflow.
+3. Apply any new database migrations.
+4. Run **Deploy Kubernetes production** manually and provide:
+   - `chart_version`: the published chart version, without a leading `v`;
+   - `image_tag`: the image tag created by the Docker workflow.
+
+The deployment waits up to five minutes for the Helm release. The application probes
+`/livez`, `/readyz`, and `/startupz`; a deployment is not ready until its required
+runtime dependencies are ready.
+
+## Secret handling
+
+By default, the chart creates a release-owned Kubernetes Secret from the GitHub
+Environment secrets. Helm release metadata therefore contains the application values
+in the cluster. For a stricter separation of duties, create the application Secret
+through your infrastructure provisioning process and deploy with `existingSecret`
+set to that Secret name instead. In that mode the Secret must contain the exact keys
+listed in [`charts/billpiggy/templates/secret.yaml`](../charts/billpiggy/templates/secret.yaml).

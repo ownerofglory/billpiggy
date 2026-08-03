@@ -1,5 +1,9 @@
 # BillPiggy
 
+See the [production deployment guide](docs/production-deployment.md) for the GitHub
+Environment secrets and variables, database migration prerequisite, and manual
+deployment workflow.
+
 ## Local PostgreSQL
 
 Start a disposable local database with tracked migrations applied on first startup:
