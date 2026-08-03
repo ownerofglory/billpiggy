@@ -58,6 +58,21 @@ ingress:
 env:
   serverAddr: "0.0.0.0:8080"
   logLevel: info
+  appEnvironment: production
+
+# Set existingSecret to use a Secret created outside Helm. Otherwise the chart
+# creates a release-owned Secret from these values.
+existingSecret: ""
+secrets:
+  databaseURL: ""
+  jwtSecret: ""
+  bootstrapSuperAdminEmail: ""
+  bootstrapSuperAdminPassword: ""
+  openAIAPIKey: ""
+  smtpAddress: ""
+  smtpUsername: ""
+  smtpPassword: ""
+  smtpFrom: ""
 
 nodeSelector: {}
 tolerations: []

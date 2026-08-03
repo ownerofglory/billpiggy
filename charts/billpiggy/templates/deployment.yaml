@@ -35,18 +35,29 @@ spec:
               containerPort: {{ .Values.service.port }}
               protocol: TCP
           env:
+            - name: APP_ENV
+              value: {{ .Values.env.appEnvironment | quote }}
             - name: SERVER_ADDR
               value: {{ .Values.env.serverAddr | quote }}
             - name: LOG_LEVEL
               value: {{ .Values.env.logLevel | quote }}
+          envFrom:
+            - secretRef:
+                name: {{ default (include "billpiggy.fullname" .) .Values.existingSecret }}
           livenessProbe:
             httpGet:
-              path: /billpiggy/api/v1/version
+              path: /livez
               port: http
           readinessProbe:
             httpGet:
-              path: /billpiggy/api/v1/version
+              path: /readyz
               port: http
+          startupProbe:
+            httpGet:
+              path: /startupz
+              port: http
+            failureThreshold: 30
+            periodSeconds: 2
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       {{- with .Values.imagePullSecrets }}

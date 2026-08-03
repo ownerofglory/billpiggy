@@ -51,6 +51,15 @@ jobs:
           INGRESS_CLUSTER_ISSUER: ${{ vars.INGRESS_CLUSTER_ISSUER }}
           INGRESS_TLS_SECRET_NAME: ${{ vars.INGRESS_TLS_SECRET_NAME }}
           LOG_LEVEL: ${{ vars.LOG_LEVEL || 'info' }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          BOOTSTRAP_SUPER_ADMIN_EMAIL: ${{ secrets.BOOTSTRAP_SUPER_ADMIN_EMAIL }}
+          BOOTSTRAP_SUPER_ADMIN_PASSWORD: ${{ secrets.BOOTSTRAP_SUPER_ADMIN_PASSWORD }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          SMTP_ADDRESS: ${{ secrets.SMTP_ADDRESS }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_FROM: ${{ secrets.SMTP_FROM }}
           KUBERNETES_NAMESPACE: ${{ secrets.KUBERNETES_NAMESPACE }}
         run: |
           helm upgrade --install billpiggy "$CHART_REGISTRY" \
@@ -63,6 +72,16 @@ jobs:
             --set-string ingress.clusterIssuer="$INGRESS_CLUSTER_ISSUER" \
             --set-string ingress.tlsSecretName="$INGRESS_TLS_SECRET_NAME" \
             --set-string env.logLevel="$LOG_LEVEL" \
+            --set-string env.appEnvironment="production" \
+            --set-string secrets.databaseURL="$DATABASE_URL" \
+            --set-string secrets.jwtSecret="$JWT_SECRET" \
+            --set-string secrets.bootstrapSuperAdminEmail="$BOOTSTRAP_SUPER_ADMIN_EMAIL" \
+            --set-string secrets.bootstrapSuperAdminPassword="$BOOTSTRAP_SUPER_ADMIN_PASSWORD" \
+            --set-string secrets.openAIAPIKey="$OPENAI_API_KEY" \
+            --set-string secrets.smtpAddress="$SMTP_ADDRESS" \
+            --set-string secrets.smtpUsername="$SMTP_USERNAME" \
+            --set-string secrets.smtpPassword="$SMTP_PASSWORD" \
+            --set-string secrets.smtpFrom="$SMTP_FROM" \
             --namespace="$KUBERNETES_NAMESPACE" \
             --create-namespace \
             --wait \
