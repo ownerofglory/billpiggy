@@ -19,6 +19,8 @@ type BillPiggyAppConfig struct {
 	MinIOSecretKey              string `env:"MINIO_SECRET_KEY"`
 	MinIOBucket                 string `env:"MINIO_BUCKET" envDefault:"billpiggy"`
 	MinIOUseSSL                 bool   `env:"MINIO_USE_SSL" envDefault:"false"`
+	OpenAIAPIKey                string `env:"OPENAI_API_KEY"`
+	OpenAIAssistantModel        string `env:"OPENAI_ASSISTANT_MODEL" envDefault:"gpt-5.6-luna"`
 }
 
 // Validate rejects production configurations that could silently lose state or sign unsafe tokens.

@@ -17,6 +17,7 @@ import (
 	"github.com/ownerofglory/billpiggy/internal/adapter/inbound/http/v1/handler"
 	"github.com/ownerofglory/billpiggy/internal/adapter/outbound/memory"
 	minioadapter "github.com/ownerofglory/billpiggy/internal/adapter/outbound/minio"
+	openaiadapter "github.com/ownerofglory/billpiggy/internal/adapter/outbound/openai"
 	postgresadapter "github.com/ownerofglory/billpiggy/internal/adapter/outbound/postgres"
 	"github.com/ownerofglory/billpiggy/internal/core/port/outbound"
 	"github.com/ownerofglory/billpiggy/internal/core/service"
@@ -105,6 +106,19 @@ func main() {
 	if projectEvents != nil {
 		go runExpenseProjector(projectEvents)
 	}
+	var assistantService *service.AssistantService
+	if cfg.OpenAIAPIKey != "" {
+		provider, err := openaiadapter.NewAssistant(cfg.OpenAIAPIKey, cfg.OpenAIAssistantModel)
+		if err != nil {
+			slog.Error("configure OpenAI assistant", "error", err)
+			os.Exit(1)
+		}
+		assistantService, err = service.NewAssistantService(provider, expenseRepository, budgetRepository)
+		if err != nil {
+			slog.Error("configure assistant", "error", err)
+			os.Exit(1)
+		}
+	}
 
 	// HTTP handler setup
 	r.Get(handler.GetVersionPath, handler.HandleGetVersion)
@@ -116,7 +130,7 @@ func main() {
 	handler.RegisterAnalyticsRoutes(r, analyticsService, handler.NewAuthMiddleware(authService))
 	handler.RegisterTaxonomyRoutes(r, taxonomyService, handler.NewAuthMiddleware(authService))
 	handler.RegisterGroupRoutes(r, groupService, handler.NewAuthMiddleware(authService))
-	handler.RegisterAssistantRoutes(r, handler.NewAuthMiddleware(authService))
+	handler.RegisterAssistantRoutes(r, assistantService, handler.NewAuthMiddleware(authService))
 	r.Get("/livez", healthRegistry.Live)
 	r.Get("/readyz", healthRegistry.Ready)
 	r.Get("/startupz", healthRegistry.Startup)

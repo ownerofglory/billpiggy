@@ -26,6 +26,9 @@ that production deployment requires approval.
 | `SMTP_USERNAME` | Optional | SMTP login user. |
 | `SMTP_PASSWORD` | Optional | SMTP login password. |
 | `SMTP_FROM` | Optional | Sender address for BillPiggy notification email. |
+| `MINIO_ENDPOINT` | Yes | In-cluster MinIO endpoint, e.g. `billpiggy-minio.billpiggy-infra.svc.cluster.local:9000`. |
+| `MINIO_ACCESS_KEY` | Yes | MinIO application access key; use the initial root user only until a scoped user is provisioned. |
+| `MINIO_SECRET_KEY` | Yes | MinIO application secret key. |
 | `DOCKER_USER` | Image workflows | Docker Hub user used as the default image namespace. |
 | `DOCKER_TOKEN` | Image workflows | Docker Hub access token. |
 | `POSTGRES_PASSWORD` | IaC workflow | Password for the PostgreSQL application and administrative users. |
@@ -53,6 +56,8 @@ bootstrapped.
 | `LOG_LEVEL` | Optional | `info` |
 | `INFRASTRUCTURE_NAMESPACE` | IaC workflow | `billpiggy-infra` |
 | `K3S_STORAGE_CLASS` | IaC workflow | `local-path` |
+| `MINIO_BUCKET` | Optional | `billpiggy` |
+| `MINIO_USE_SSL` | Optional | `false` for the in-cluster MinIO service |
 
 ## Database migrations
 
