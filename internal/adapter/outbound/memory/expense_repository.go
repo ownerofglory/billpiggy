@@ -80,6 +80,21 @@ func (r *ExpenseRepository) DeleteExpense(_ context.Context, ownerID, expenseID 
 	return nil
 }
 
+// Snapshot copies the projection and returns a function restoring it.
+func (r *ExpenseRepository) Snapshot() func() {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	saved := make(map[string]domain.ExpenseRecord, len(r.expenses))
+	for id, expense := range r.expenses {
+		saved[id] = cloneExpense(expense)
+	}
+	return func() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		r.expenses = saved
+	}
+}
+
 func matchesExpense(expense domain.ExpenseRecord, filter outbound.ExpenseListFilter) bool {
 	query := strings.ToLower(strings.TrimSpace(filter.Query))
 	if query != "" && !strings.Contains(strings.ToLower(expense.Title), query) && !strings.Contains(strings.ToLower(expense.CategoryName), query) {

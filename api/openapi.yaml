@@ -92,14 +92,19 @@ definitions:
   domain.ExpenseCategory:
     properties:
       color:
+        description: Color is an optional hex swatch used by clients.
         type: string
       createdAt:
+        description: CreatedAt is when the category was created.
         type: string
       id:
+        description: ID identifies the category.
         type: string
       isDefault:
+        description: IsDefault marks a category the application ships for every user.
         type: boolean
       name:
+        description: Name is the display name.
         type: string
     type: object
   domain.ExpenseItem:
@@ -205,12 +210,16 @@ definitions:
   domain.ExpenseTag:
     properties:
       color:
+        description: Color is an optional hex swatch used by clients.
         type: string
       createdAt:
+        description: CreatedAt is when the tag was created.
         type: string
       id:
+        description: ID identifies the tag.
         type: string
       name:
+        description: Name is the display name.
         type: string
     type: object
   domain.UserGroup:

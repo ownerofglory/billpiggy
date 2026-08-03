@@ -48,6 +48,21 @@ func (r *BudgetRepository) GetBudget(_ context.Context, ownerID, id string, shar
 	return value, nil
 }
 
+// Snapshot copies the projection and returns a function restoring it.
+func (r *BudgetRepository) Snapshot() func() {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	saved := make(map[string]domain.BudgetRecord, len(r.budgets))
+	for id, value := range r.budgets {
+		saved[id] = value
+	}
+	return func() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		r.budgets = saved
+	}
+}
+
 func containsGroup(groupIDs []string, groupID string) bool {
 	for _, value := range groupIDs {
 		if value == groupID {

@@ -15,7 +15,7 @@ func TestExpenseServiceLifecycleAndOwnerScopedFiltering(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	repository, events := memory.NewExpenseRepository(), memory.NewEventStore()
-	expenses, err := service.NewExpenseService(repository, events)
+	expenses, err := service.NewExpenseService(repository, events, memory.NewUnitOfWork(repository, events))
 	if err != nil {
 		t.Fatalf("new expense service: %v", err)
 	}

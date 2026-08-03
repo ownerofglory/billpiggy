@@ -64,3 +64,29 @@ func (r *NotificationRepository) MarkNotificationFailed(_ context.Context, id, _
 	r.deliveries[id] = value
 	return nil
 }
+
+// Deliveries returns every queued delivery, for test assertions.
+func (r *NotificationRepository) Deliveries() []domain.NotificationDelivery {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	values := make([]domain.NotificationDelivery, 0, len(r.deliveries))
+	for _, value := range r.deliveries {
+		values = append(values, value)
+	}
+	return values
+}
+
+// Snapshot copies the queue and returns a function restoring it.
+func (r *NotificationRepository) Snapshot() func() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	saved := make(map[string]domain.NotificationDelivery, len(r.deliveries))
+	for id, value := range r.deliveries {
+		saved[id] = value
+	}
+	return func() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		r.deliveries = saved
+	}
+}

@@ -15,7 +15,8 @@ func TestBudgetServiceRecordsBudgetLifecycleEvents(t *testing.T) {
 	ctx := context.Background()
 	events := memory.NewEventStore()
 	groupRepository := memory.NewGroupRepository()
-	budgets, err := service.NewBudgetService(memory.NewBudgetRepository(), events, groupRepository)
+	repository := memory.NewBudgetRepository()
+	budgets, err := service.NewBudgetService(repository, events, groupRepository, memory.NewUnitOfWork(repository, events))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +50,8 @@ func TestBudgetServiceMakesSharedBudgetsVisibleToGroupMembers(t *testing.T) {
 	if err := groupRepository.CreateGroup(ctx, domain.UserGroup{ID: "family", Name: "Family", CreatedBy: "admin", MemberIDs: []string{"member"}, CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
-	budgets, err := service.NewBudgetService(memory.NewBudgetRepository(), memory.NewEventStore(), groupRepository)
+	repository, events := memory.NewBudgetRepository(), memory.NewEventStore()
+	budgets, err := service.NewBudgetService(repository, events, groupRepository, memory.NewUnitOfWork(repository, events))
 	if err != nil {
 		t.Fatal(err)
 	}

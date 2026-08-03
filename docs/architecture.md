@@ -24,14 +24,50 @@ event-driven boundaries needed to scale later.
 `events.events` is an append-only event stream. Every event has an aggregate type,
 aggregate ID, aggregate version, payload, metadata, and correlation/causation IDs.
 The `(aggregate_type, aggregate_id, aggregate_version)` unique constraint implements
-optimistic concurrency. The event and its outbox record are written in one database
-transaction.
+optimistic concurrency. `global_seq` gives the store a single monotonic order that the
+delivery queue drains by; `aggregate_version` orders events within one aggregate.
 
-Projectors consume the outbox idempotently and write into context-owned schemas:
-`expenses`, `budgets`, `analytics`, `reports`, `notifications`, and `audit`. A
-checkpoint per projector means failed delivery can be retried safely. Projectors run
-in-process initially; the outbox lets a future worker or message broker take over
-without changing command handlers.
+Two kinds of consistency are kept deliberately separate.
+
+**Command consistency is synchronous.** An aggregate's own read model
+(`expenses.expenses`, `budgets.budgets`) commits in the same transaction as its event.
+Services obtain that transaction from the `UnitOfWork` port; `pkg/pgxtx` propagates the
+`pgx.Tx` through the context so every outbound adapter joins it without any port
+changing shape, and the in-memory adapters get equivalent snapshot-and-restore
+semantics so the behaviour is testable without a database. Services always append the
+event first, which takes the aggregate advisory lock before any row lock and gives
+concurrent commands on one aggregate a consistent lock order.
+
+**Cross-context propagation is asynchronous.** `events.outbox` fans each event out to
+one row per registered subscription in `events.subscriptions`, so adding a projection
+is a row rather than a schema change. `pkg/outbox` drives them: one transaction per
+message, never per batch, with leases, exponential backoff through `available_at`,
+dead-lettering after a bounded number of attempts, and `last_error` recorded for
+operators. Handlers run inside the store's transaction, so a projection write, the
+outbox acknowledgement and anything else the handler queues — a budget-alert email,
+for instance — all commit together or not at all.
+
+Ordering rests on a per-aggregate blocker guard rather than a global lock: a message
+waits while any earlier message for the *same* aggregate is still pending or
+dead-lettered, and messages for unrelated aggregates flow past it freely. Global order
+across unrelated aggregates is irrelevant to every projection here; same-aggregate
+order is what the reversal logic depends on. A poison event therefore freezes one
+aggregate's projection instead of corrupting it or stalling the queue.
+
+Backfill is not a separate code path. Registering a subscription that has never run
+enqueues the existing history with `replay` set, so it drains through the same engine
+and handler as live traffic while handlers suppress user-visible side effects.
+`events.projector_checkpoints` records progress per subscription for operator
+visibility and lag reporting; it is explicitly **not** a skip watermark, because
+sequence values are assigned before commit and gaps are transiently visible. The
+outbox row status is the only authority on what remains undone.
+
+The current subscriptions are `analytics_rollups` (category and tag rollups),
+`budget_usage` (per-period spend plus threshold alerts), and `audit_trail` (every
+aggregate type). Projections live in `internal/core/service` and depend only on
+outbound ports, so one implementation serves both PostgreSQL and the in-memory
+adapters. Each engine exposes a readiness check and runs in-process; the outbox lets a
+future worker or message broker take over without changing command handlers.
 
 TimescaleDB is intentionally not a runtime dependency for the first deployment.
 The event stream is indexed by aggregate and timestamp, and analytics projections are

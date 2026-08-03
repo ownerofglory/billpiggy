@@ -47,7 +47,15 @@ type BudgetUpdated struct {
 }
 
 // BudgetRemoved records soft deletion of a budget.
+//
+// The json tags match ExpenseRemoved. Events written before they were added
+// serialised these fields as Go identifiers, so [DecodeBudget] accepts both
+// spellings permanently.
 type BudgetRemoved struct {
-	BudgetID, OwnerID string
-	RemovedAt         time.Time
+	// BudgetID identifies the removed budget.
+	BudgetID string `json:"budget_id"`
+	// OwnerID is the user the budget belonged to.
+	OwnerID string `json:"owner_id"`
+	// RemovedAt is when the budget was soft-deleted.
+	RemovedAt time.Time `json:"removed_at"`
 }
