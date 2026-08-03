@@ -73,6 +73,11 @@ secrets:
   smtpUsername: ""
   smtpPassword: ""
   smtpFrom: ""
+  minioEndpoint: ""
+  minioAccessKey: ""
+  minioSecretKey: ""
+  minioBucket: "billpiggy"
+  minioUseSSL: "false"
 
 nodeSelector: {}
 tolerations: []

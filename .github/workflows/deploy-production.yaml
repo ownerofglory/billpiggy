@@ -60,6 +60,11 @@ jobs:
           SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           SMTP_FROM: ${{ secrets.SMTP_FROM }}
+          MINIO_ENDPOINT: ${{ secrets.MINIO_ENDPOINT }}
+          MINIO_ACCESS_KEY: ${{ secrets.MINIO_ACCESS_KEY }}
+          MINIO_SECRET_KEY: ${{ secrets.MINIO_SECRET_KEY }}
+          MINIO_BUCKET: ${{ vars.MINIO_BUCKET || 'billpiggy' }}
+          MINIO_USE_SSL: ${{ vars.MINIO_USE_SSL || 'false' }}
           KUBERNETES_NAMESPACE: ${{ secrets.KUBERNETES_NAMESPACE }}
         run: |
           helm upgrade --install billpiggy "$CHART_REGISTRY" \
@@ -82,6 +87,11 @@ jobs:
             --set-string secrets.smtpUsername="$SMTP_USERNAME" \
             --set-string secrets.smtpPassword="$SMTP_PASSWORD" \
             --set-string secrets.smtpFrom="$SMTP_FROM" \
+            --set-string secrets.minioEndpoint="$MINIO_ENDPOINT" \
+            --set-string secrets.minioAccessKey="$MINIO_ACCESS_KEY" \
+            --set-string secrets.minioSecretKey="$MINIO_SECRET_KEY" \
+            --set-string secrets.minioBucket="$MINIO_BUCKET" \
+            --set-string secrets.minioUseSSL="$MINIO_USE_SSL" \
             --namespace="$KUBERNETES_NAMESPACE" \
             --create-namespace \
             --wait \
