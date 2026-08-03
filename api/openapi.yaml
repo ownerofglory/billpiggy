@@ -252,6 +252,11 @@ definitions:
       token:
         type: string
     type: object
+  handler.assistantRequest:
+    properties:
+      message:
+        type: string
+    type: object
   handler.budgetRequest:
     properties:
       amount_limit_minor:
@@ -456,6 +461,13 @@ paths:
     post:
       consumes:
       - application/json
+      parameters:
+      - description: Assistant message
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.assistantRequest'
       produces:
       - text/event-stream
       responses:
