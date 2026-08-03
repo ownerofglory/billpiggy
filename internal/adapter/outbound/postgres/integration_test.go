@@ -68,7 +68,7 @@ func applyMigrations(t *testing.T, pool *pgxpool.Pool) {
 	}
 	// Start from nothing, so every run exercises the migrations exactly as a
 	// fresh deployment does rather than assuming a pre-existing schema.
-	if _, err := pool.Exec(context.Background(), `drop schema if exists events, identity, expenses, budgets, analytics, reports, notifications, audit cascade`); err != nil {
+	if _, err := pool.Exec(context.Background(), `drop schema if exists events, identity, expenses, budgets, analytics, reports, notifications, audit, files cascade`); err != nil {
 		t.Fatalf("reset schema: %v", err)
 	}
 	for _, file := range files {
@@ -101,7 +101,7 @@ func truncateAll(t *testing.T, pool *pgxpool.Pool) {
 			analytics.tag_expense_rollups, analytics.expense_rollups, analytics.expense_contributions,
 			budgets.budget_usage, budgets.expense_contributions, budgets.budgets,
 			expenses.expense_items, expenses.expense_tags, expenses.expenses, expenses.tags,
-			audit.entries, notifications.deliveries,
+			audit.entries, notifications.deliveries, files.object_references,
 			identity.group_members, identity.groups, identity.refresh_tokens, identity.invitations, identity.users
 		restart identity cascade`)
 	if err != nil {
