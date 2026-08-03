@@ -9,6 +9,7 @@ I really appreciate your cooperation, but follow the rules
 - DO NOT connect to the kubernetes cluster!
 - DO NOT push docker imager from this machine!
 - DO NOT push helm releases from this machine!
+- DO NOT apply any terraform or other IaC locally!
 
 ## Requirements
 - follow hexagonal architecture
