@@ -12,8 +12,13 @@ import (
 
 	"github.com/caarlos0/env/v11"
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/ownerofglory/billpiggy/config"
 	"github.com/ownerofglory/billpiggy/internal/adapter/inbound/http/v1/handler"
+	"github.com/ownerofglory/billpiggy/internal/adapter/outbound/memory"
+	postgresadapter "github.com/ownerofglory/billpiggy/internal/adapter/outbound/postgres"
+	"github.com/ownerofglory/billpiggy/internal/core/port/outbound"
+	"github.com/ownerofglory/billpiggy/internal/core/service"
 	"github.com/ownerofglory/billpiggy/pkg/health"
 )
 
@@ -29,12 +34,29 @@ func main() {
 		slog.Error("Failed to parse config", "error", err)
 		os.Exit(1)
 	}
+	if err := cfg.Validate(); err != nil {
+		slog.Error("invalid configuration", "error", err)
+		os.Exit(1)
+	}
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel(cfg.LogLevel)})))
 	slog.Info("starting app")
 
 	// Chi setup
 	r := chi.NewRouter()
 	healthRegistry := health.NewRegistry()
+	identityRepository, closeRepository := identityRepository(cfg, healthRegistry)
+	defer closeRepository()
+	authService, err := service.NewAuthService(identityRepository, service.AuthConfig{
+		JWTSecret: cfg.JWTSecret, BootstrapSuperAdminEmail: cfg.BootstrapSuperAdminEmail, BootstrapSuperAdminPassword: cfg.BootstrapSuperAdminPassword,
+	})
+	if err != nil {
+		slog.Error("configure authentication", "error", err)
+		os.Exit(1)
+	}
+	if err := authService.EnsureBootstrapSuperAdmin(context.Background()); err != nil {
+		slog.Error("bootstrap authentication", "error", err)
+		os.Exit(1)
+	}
 
 	// HTTP handler setup
 	r.Get(handler.GetVersionPath, handler.HandleGetVersion)
@@ -73,6 +95,21 @@ func main() {
 	}
 
 	slog.Info("App finished")
+}
+
+func identityRepository(cfg config.BillPiggyAppConfig, healthRegistry *health.Registry) (outbound.IdentityRepository, func()) {
+	if cfg.DatabaseURL == "" {
+		slog.Warn("using in-memory identity storage; set DATABASE_URL for persistent data")
+		return memory.NewIdentityRepository(), func() {}
+	}
+	pool, err := pgxpool.New(context.Background(), cfg.DatabaseURL)
+	if err != nil {
+		slog.Error("connect postgres", "error", err)
+		os.Exit(1)
+	}
+	repository := postgresadapter.NewIdentityRepository(pool)
+	healthRegistry.Register("postgres", repository.Ping)
+	return repository, pool.Close
 }
 
 func logLevel(value string) slog.Level {
