@@ -1,0 +1,48 @@
+name: Apply database migrations
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Container image tag containing the migrations to apply
+        required: true
+        type: string
+      confirm:
+        description: Type MIGRATE to apply migrations
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  migrate:
+    if: ${{ inputs.confirm == 'MIGRATE' }}
+    runs-on: ubuntu-22.04
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure cluster access
+        env:
+          KUBERNETES_CA_DATA: ${{ secrets.KUBERNETES_CA_DATA }}
+          KUBERNETES_CLUSTER_SERVER_URL: ${{ secrets.KUBERNETES_CLUSTER_SERVER_URL }}
+          KUBERNETES_NAMESPACE: ${{ secrets.KUBERNETES_NAMESPACE }}
+          KUBERNETES_CLIENT_CA_DATA: ${{ secrets.KUBERNETES_CLIENT_CA_DATA }}
+          KUBERNETES_CLIENT_KEY_DATA: ${{ secrets.KUBERNETES_CLIENT_KEY_DATA }}
+        run: envsubst < .kube/config > "$RUNNER_TEMP/kubeconfig"
+      - uses: azure/setup-helm@v4
+      - name: Apply migrations inside the cluster
+        env:
+          KUBECONFIG: ${{ runner.temp }}/kubeconfig
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          IMAGE_REPOSITORY: ${{ vars.DOCKER_IMAGE_NAME || format('{0}/billpiggy', secrets.DOCKER_USER) }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          KUBERNETES_NAMESPACE: ${{ secrets.KUBERNETES_NAMESPACE }}
+        run: |
+          helm upgrade --install billpiggy-migrations infra/migrations \
+            --set-string image.repository="$IMAGE_REPOSITORY" \
+            --set-string image.tag="$IMAGE_TAG" \
+            --set-string databaseURL="$DATABASE_URL" \
+            --namespace="$KUBERNETES_NAMESPACE" \
+            --wait --wait-for-jobs --timeout 5m

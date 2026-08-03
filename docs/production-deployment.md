@@ -46,17 +46,25 @@ bootstrapped.
 
 ## Database migrations
 
-Apply the ordered SQL migrations in [`migrations/`](../migrations) to production
-PostgreSQL before the first deployment and whenever a release adds a migration. The
-current deployment workflow deliberately does not run migrations; this prevents a
-GitHub-hosted runner from needing direct database network access. Use a controlled
-database administration path to run each `*.up.sql` file in numeric order.
+Run the manual **Apply database migrations** workflow before the first application
+deployment and whenever a release adds a migration. It runs a short-lived Helm hook
+Job inside the cluster, so the cluster-internal PostgreSQL service never needs to be
+exposed to a GitHub-hosted runner. Provide the release image tag and type `MIGRATE`
+to confirm. The job records applied files in `public.schema_migrations` and is safe to
+run again for the same image.
+
+## Infrastructure provisioning
+
+The [Terraform infrastructure root](../infra/terraform) provisions the initial
+PostgreSQL and MinIO releases for k3s. Use its protected manual workflow before
+deploying the application. It needs additional Terraform-state and dependency
+credentials; see its [README](../infra/terraform/README.md).
 
 ## Run a deployment
 
 1. Publish the release image through the Docker release workflow.
 2. Publish the matching Helm chart through the Helm release workflow.
-3. Apply any new database migrations.
+3. Run **Apply database migrations** for that image tag.
 4. Run **Deploy Kubernetes production** manually and provide:
    - `chart_version`: the published chart version, without a leading `v`;
    - `image_tag`: the image tag created by the Docker workflow.

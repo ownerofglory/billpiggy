@@ -1,0 +1,3 @@
+# The GitHub Actions workflow supplies sensitive variables as environment secrets.
+namespace     = "billpiggy-infra"
+storage_class = "local-path"
