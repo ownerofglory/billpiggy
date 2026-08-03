@@ -35,11 +35,18 @@ type authHandler struct {
 	cookieSecure bool
 }
 
+// login authenticates an invited user and sets a refresh-token cookie.
+//
+//	@Summary	Log in
+//	@Tags		auth
+//	@Accept		json
+//	@Produce	json
+//	@Param		request	body		loginRequest	true	"Credentials"
+//	@Success	200		{object}	sessionResponse
+//	@Failure	401		{object}	map[string]string
+//	@Router		/billpiggy/api/v1/auth/login [post]
 func (h authHandler) login(w http.ResponseWriter, r *http.Request) {
-	var request struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
-	}
+	var request loginRequest
 	if !decodeJSON(w, r, &request) {
 		return
 	}
@@ -51,6 +58,14 @@ func (h authHandler) login(w http.ResponseWriter, r *http.Request) {
 	h.writeSession(w, session)
 }
 
+// refresh rotates the HttpOnly refresh token and returns a new access token.
+//
+//	@Summary	Refresh session
+//	@Tags		auth
+//	@Produce	json
+//	@Success	200	{object}	sessionResponse
+//	@Failure	401	{object}	map[string]string
+//	@Router		/billpiggy/api/v1/auth/refresh [post]
 func (h authHandler) refresh(w http.ResponseWriter, r *http.Request) {
 	cookie, err := r.Cookie("billpiggy_refresh")
 	if err != nil {
@@ -65,6 +80,12 @@ func (h authHandler) refresh(w http.ResponseWriter, r *http.Request) {
 	h.writeSession(w, session)
 }
 
+// logout revokes the browser refresh token.
+//
+//	@Summary	Log out
+//	@Tags		auth
+//	@Success	204
+//	@Router		/billpiggy/api/v1/auth/logout [post]
 func (h authHandler) logout(w http.ResponseWriter, r *http.Request) {
 	if cookie, err := r.Cookie("billpiggy_refresh"); err == nil {
 		_ = h.service.Logout(r.Context(), cookie.Value)
@@ -73,12 +94,18 @@ func (h authHandler) logout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// acceptInvitation creates a user from an administrator-issued invitation.
+//
+//	@Summary	Accept invitation
+//	@Tags		auth
+//	@Accept		json
+//	@Produce	json
+//	@Param		request	body		acceptInvitationRequest	true	"Invitation details"
+//	@Success	201		{object}	userResponseBody
+//	@Failure	401		{object}	map[string]string
+//	@Router		/billpiggy/api/v1/auth/invitations/accept [post]
 func (h authHandler) acceptInvitation(w http.ResponseWriter, r *http.Request) {
-	var request struct {
-		Token       string `json:"token"`
-		Password    string `json:"password"`
-		DisplayName string `json:"display_name"`
-	}
+	var request acceptInvitationRequest
 	if !decodeJSON(w, r, &request) {
 		return
 	}
@@ -90,13 +117,20 @@ func (h authHandler) acceptInvitation(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, userResponse(user))
 }
 
+// invite creates a new invitation. It requires users:invite permission.
+//
+//	@Summary	Invite user
+//	@Tags		auth, administration
+//	@Accept		json
+//	@Param		request	body	invitationRequest	true	"Invitation"
+//	@Success	202
+//	@Failure	401	{object}	map[string]string
+//	@Failure	403	{object}	map[string]string
+//	@Router		/billpiggy/api/v1/auth/invitations [post]
 func (h authHandler) invite(w http.ResponseWriter, r *http.Request) {
 	identity, _ := sharedauth.IdentityFromContext(r.Context())
 	actor := domain.AppUser{ID: identity.Subject, Email: identity.Email, Role: domain.UserRole(identity.Role)}
-	var request struct {
-		Email string          `json:"email"`
-		Role  domain.UserRole `json:"role"`
-	}
+	var request invitationRequest
 	if !decodeJSON(w, r, &request) {
 		return
 	}
@@ -112,14 +146,22 @@ func (h authHandler) invite(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusAccepted)
 }
 
+// me returns the authenticated user's identity.
+//
+//	@Summary	Get current user
+//	@Tags		auth
+//	@Produce	json
+//	@Success	200	{object}	currentUserResponse
+//	@Failure	401	{object}	map[string]string
+//	@Router		/billpiggy/api/v1/auth/me [get]
 func (h authHandler) me(w http.ResponseWriter, r *http.Request) {
 	identity, _ := sharedauth.IdentityFromContext(r.Context())
-	writeJSON(w, http.StatusOK, map[string]string{"id": identity.Subject, "email": identity.Email, "role": identity.Role})
+	writeJSON(w, http.StatusOK, currentUserResponse{ID: identity.Subject, Email: identity.Email, Role: identity.Role})
 }
 
 func (h authHandler) writeSession(w http.ResponseWriter, session service.Session) {
 	http.SetCookie(w, &http.Cookie{Name: "billpiggy_refresh", Value: session.RefreshToken, Path: basePathV1 + "/auth", Expires: session.RefreshTokenExpiry, HttpOnly: true, Secure: h.cookieSecure, SameSite: http.SameSiteStrictMode})
-	writeJSON(w, http.StatusOK, map[string]any{"access_token": session.AccessToken, "expires_at": session.AccessTokenExpiry})
+	writeJSON(w, http.StatusOK, sessionResponse{AccessToken: session.AccessToken, ExpiresAt: session.AccessTokenExpiry})
 }
 func (h authHandler) clearRefreshCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{Name: "billpiggy_refresh", Value: "", Path: basePathV1 + "/auth", Expires: time.Unix(0, 0), MaxAge: -1, HttpOnly: true, Secure: h.cookieSecure, SameSite: http.SameSiteStrictMode})
@@ -141,8 +183,8 @@ func (authorizer) Allows(identity sharedauth.Identity, permission string) bool {
 	return domain.UserRole(identity.Role).Allows(domain.Permission(permission))
 }
 
-func userResponse(user domain.AppUser) map[string]string {
-	return map[string]string{"id": user.ID, "email": user.Email, "display_name": user.DisplayName, "role": string(user.Role)}
+func userResponse(user domain.AppUser) userResponseBody {
+	return userResponseBody{ID: user.ID, Email: user.Email, DisplayName: user.DisplayName, Role: string(user.Role)}
 }
 func decodeJSON(w http.ResponseWriter, r *http.Request, target any) bool {
 	if err := json.NewDecoder(r.Body).Decode(target); err != nil {
@@ -158,4 +200,33 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 }
 func writeJSONError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, map[string]string{"error": message})
+}
+
+type loginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+type acceptInvitationRequest struct {
+	Token       string `json:"token"`
+	Password    string `json:"password"`
+	DisplayName string `json:"display_name"`
+}
+type invitationRequest struct {
+	Email string          `json:"email"`
+	Role  domain.UserRole `json:"role"`
+}
+type userResponseBody struct {
+	ID          string `json:"id"`
+	Email       string `json:"email"`
+	DisplayName string `json:"display_name"`
+	Role        string `json:"role"`
+}
+type currentUserResponse struct {
+	ID    string `json:"id"`
+	Email string `json:"email"`
+	Role  string `json:"role"`
+}
+type sessionResponse struct {
+	AccessToken string    `json:"access_token"`
+	ExpiresAt   time.Time `json:"expires_at"`
 }

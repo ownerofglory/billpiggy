@@ -1,10 +1,199 @@
 basePath: /
+definitions:
+  domain.UserRole:
+    enum:
+    - member
+    - admin
+    - super_admin
+    type: string
+    x-enum-varnames:
+    - RoleMember
+    - RoleAdmin
+    - RoleSuperAdmin
+  handler.acceptInvitationRequest:
+    properties:
+      display_name:
+        type: string
+      password:
+        type: string
+      token:
+        type: string
+    type: object
+  handler.currentUserResponse:
+    properties:
+      email:
+        type: string
+      id:
+        type: string
+      role:
+        type: string
+    type: object
+  handler.invitationRequest:
+    properties:
+      email:
+        type: string
+      role:
+        $ref: '#/definitions/domain.UserRole'
+    type: object
+  handler.loginRequest:
+    properties:
+      email:
+        type: string
+      password:
+        type: string
+    type: object
+  handler.sessionResponse:
+    properties:
+      access_token:
+        type: string
+      expires_at:
+        type: string
+    type: object
+  handler.userResponseBody:
+    properties:
+      display_name:
+        type: string
+      email:
+        type: string
+      id:
+        type: string
+      role:
+        type: string
+    type: object
 info:
   contact: {}
   description: API for personal cost tracking.
   title: BillPiggy API
   version: "1.0"
 paths:
+  /billpiggy/api/v1/auth/invitations:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Invitation
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.invitationRequest'
+      responses:
+        "202":
+          description: Accepted
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Invite user
+      tags:
+      - auth
+      - administration
+  /billpiggy/api/v1/auth/invitations/accept:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Invitation details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.acceptInvitationRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/handler.userResponseBody'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Accept invitation
+      tags:
+      - auth
+  /billpiggy/api/v1/auth/login:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Credentials
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.loginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.sessionResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Log in
+      tags:
+      - auth
+  /billpiggy/api/v1/auth/logout:
+    post:
+      responses:
+        "204":
+          description: No Content
+      summary: Log out
+      tags:
+      - auth
+  /billpiggy/api/v1/auth/me:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.currentUserResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get current user
+      tags:
+      - auth
+  /billpiggy/api/v1/auth/refresh:
+    post:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.sessionResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Refresh session
+      tags:
+      - auth
   /billpiggy/api/v1/version:
     get:
       produces:
