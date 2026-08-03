@@ -169,6 +169,27 @@ info:
   title: BillPiggy API
   version: "1.0"
 paths:
+  /billpiggy/api/v1/assistant/chat:
+    post:
+      consumes:
+      - application/json
+      produces:
+      - text/event-stream
+      responses:
+        "200":
+          description: 'SSE events: message.started, message.delta, message.completed,
+            message.error'
+          schema:
+            type: string
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Stream an assistant response
+      tags:
+      - assistant
   /billpiggy/api/v1/auth/invitations:
     post:
       consumes:

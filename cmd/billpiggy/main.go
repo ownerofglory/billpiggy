@@ -67,6 +67,7 @@ func main() {
 	r.Get(handler.GetVersionPath, handler.HandleGetVersion)
 	handler.RegisterAuthRoutes(r, authService, cfg.Environment == "production")
 	handler.RegisterExpenseRoutes(r, expenseService, handler.NewAuthMiddleware(authService))
+	handler.RegisterAssistantRoutes(r, handler.NewAuthMiddleware(authService))
 	r.Get("/livez", healthRegistry.Live)
 	r.Get("/readyz", healthRegistry.Ready)
 	r.Get("/startupz", healthRegistry.Startup)
