@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/ownerofglory/billpiggy/config"
 	"github.com/ownerofglory/billpiggy/internal/adapter/inbound/http/v1/handler"
+	"github.com/ownerofglory/billpiggy/pkg/health"
 )
 
 // @title			BillPiggy API
@@ -21,8 +22,6 @@ import (
 // @description	API for personal cost tracking.
 // @BasePath		/
 func main() {
-	slog.Info("Starting app")
-
 	// Config parsing
 	var cfg config.BillPiggyAppConfig
 	err := env.Parse(&cfg)
@@ -30,12 +29,20 @@ func main() {
 		slog.Error("Failed to parse config", "error", err)
 		os.Exit(1)
 	}
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel(cfg.LogLevel)})))
+	slog.Info("starting app")
 
 	// Chi setup
 	r := chi.NewRouter()
+	healthRegistry := health.NewRegistry()
 
 	// HTTP handler setup
 	r.Get(handler.GetVersionPath, handler.HandleGetVersion)
+	r.Get("/livez", healthRegistry.Live)
+	r.Get("/readyz", healthRegistry.Ready)
+	r.Get("/startupz", healthRegistry.Startup)
+	r.Get("/metrics", healthRegistry.Metrics)
+	healthRegistry.MarkStarted()
 
 	httpServer := http.Server{
 		Addr:    cfg.ServerAddr,
@@ -66,4 +73,12 @@ func main() {
 	}
 
 	slog.Info("App finished")
+}
+
+func logLevel(value string) slog.Level {
+	var level slog.Level
+	if err := level.UnmarshalText([]byte(value)); err != nil {
+		return slog.LevelInfo
+	}
+	return level
 }
