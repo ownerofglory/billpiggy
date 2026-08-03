@@ -60,6 +60,7 @@ func main() {
 
 	// HTTP handler setup
 	r.Get(handler.GetVersionPath, handler.HandleGetVersion)
+	handler.RegisterAuthRoutes(r, authService, cfg.Environment == "production")
 	r.Get("/livez", healthRegistry.Live)
 	r.Get("/readyz", healthRegistry.Ready)
 	r.Get("/startupz", healthRegistry.Startup)
