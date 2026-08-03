@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/ownerofglory/billpiggy/internal/core/domain"
@@ -16,8 +17,10 @@ func (r *BudgetRepository) CreateBudget(ctx context.Context, b domain.BudgetReco
 	_, e := r.pool.Exec(ctx, `insert into budgets.budgets(id,owner_id,category_id,name,amount_limit_minor,currency,threshold_percent,due_at,period,shared_group_id,created_at,updated_at) values($1,$2,$3,$4,$5,$6,$7,$8,$9,nullif($10,'')::uuid,$11,$12)`, b.ID, b.OwnerID, b.CategoryID, b.Name, b.AmountLimitMinor, b.Currency, b.ThresholdPercent, b.DueAt, b.Period, b.SharedGroupID, b.CreatedAt, b.UpdatedAt)
 	return e
 }
-func (r *BudgetRepository) ListBudgets(ctx context.Context, owner string) ([]domain.BudgetRecord, error) {
-	rows, e := r.pool.Query(ctx, `select id::text,owner_id::text,category_id::text,name,amount_limit_minor,currency,threshold_percent,due_at,period,coalesce(shared_group_id::text,''),created_at,updated_at from budgets.budgets where owner_id=$1 and deleted_at is null order by created_at desc`, owner)
+
+// ListBudgets returns budgets owned by or shared with the viewer.
+func (r *BudgetRepository) ListBudgets(ctx context.Context, owner string, sharedGroupIDs []string) ([]domain.BudgetRecord, error) {
+	rows, e := r.pool.Query(ctx, `select id::text,owner_id::text,category_id::text,name,amount_limit_minor,currency,threshold_percent,due_at,period,coalesce(shared_group_id::text,''),created_at,updated_at from budgets.budgets where (owner_id=$1 or shared_group_id = any($2::uuid[])) and deleted_at is null order by created_at desc`, owner, sharedGroupIDs)
 	if e != nil {
 		return nil, e
 	}
@@ -34,15 +37,17 @@ func (r *BudgetRepository) ListBudgets(ctx context.Context, owner string) ([]dom
 	}
 	return out, rows.Err()
 }
-func (r *BudgetRepository) GetBudget(ctx context.Context, owner, id string) (domain.BudgetRecord, error) {
+
+// GetBudget returns a budget owned by or shared with the viewer.
+func (r *BudgetRepository) GetBudget(ctx context.Context, owner, id string, sharedGroupIDs []string) (domain.BudgetRecord, error) {
 	var b domain.BudgetRecord
 	var p string
-	e := r.pool.QueryRow(ctx, `select id::text,owner_id::text,category_id::text,name,amount_limit_minor,currency,threshold_percent,due_at,period,coalesce(shared_group_id::text,''),created_at,updated_at from budgets.budgets where id=$1 and owner_id=$2 and deleted_at is null`, id, owner).Scan(&b.ID, &b.OwnerID, &b.CategoryID, &b.Name, &b.AmountLimitMinor, &b.Currency, &b.ThresholdPercent, &b.DueAt, &p, &b.SharedGroupID, &b.CreatedAt, &b.UpdatedAt)
+	e := r.pool.QueryRow(ctx, `select id::text,owner_id::text,category_id::text,name,amount_limit_minor,currency,threshold_percent,due_at,period,coalesce(shared_group_id::text,''),created_at,updated_at from budgets.budgets where id=$1 and (owner_id=$2 or shared_group_id = any($3::uuid[])) and deleted_at is null`, id, owner, sharedGroupIDs).Scan(&b.ID, &b.OwnerID, &b.CategoryID, &b.Name, &b.AmountLimitMinor, &b.Currency, &b.ThresholdPercent, &b.DueAt, &p, &b.SharedGroupID, &b.CreatedAt, &b.UpdatedAt)
 	b.Period = domain.BudgetPeriod(p)
 	return b, e
 }
 func (r *BudgetRepository) UpdateBudget(ctx context.Context, b domain.BudgetRecord) error {
-	c, e := r.pool.Exec(ctx, `update budgets.budgets set name=$3,amount_limit_minor=$4,currency=$5,threshold_percent=$6,due_at=$7,period=$8,shared_group_id=nullif($9,'')::uuid,updated_at=$10 where id=$1 and owner_id=$2 and deleted_at is null`, b.ID, b.OwnerID, b.Name, b.AmountLimitMinor, b.Currency, b.ThresholdPercent, b.DueAt, b.Period, b.SharedGroupID, b.UpdatedAt)
+	c, e := r.pool.Exec(ctx, `update budgets.budgets set category_id=$3,name=$4,amount_limit_minor=$5,currency=$6,threshold_percent=$7,due_at=$8,period=$9,shared_group_id=nullif($10,'')::uuid,updated_at=$11 where id=$1 and owner_id=$2 and deleted_at is null`, b.ID, b.OwnerID, b.CategoryID, b.Name, b.AmountLimitMinor, b.Currency, b.ThresholdPercent, b.DueAt, b.Period, b.SharedGroupID, b.UpdatedAt)
 	if e == nil && c.RowsAffected() != 1 {
 		return pgx.ErrNoRows
 	}

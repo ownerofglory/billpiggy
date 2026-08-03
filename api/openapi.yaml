@@ -1,5 +1,63 @@
 basePath: /
 definitions:
+  domain.BudgetPeriod:
+    enum:
+    - daily
+    - weekly
+    - monthly
+    - yearly
+    - custom
+    type: string
+    x-enum-varnames:
+    - BudgetDaily
+    - BudgetWeekly
+    - BudgetMonthly
+    - BudgetYearly
+    - BudgetCustom
+  domain.BudgetRecord:
+    properties:
+      amountLimitMinor:
+        description: AmountLimitMinor is the limit in the currency's minor units.
+        format: int64
+        type: integer
+      categoryID:
+        description: ID identifies the budget.
+        type: string
+      createdAt:
+        description: CreatedAt and UpdatedAt record projection timestamps.
+        type: string
+      currency:
+        description: ID identifies the budget.
+        type: string
+      deletedAt:
+        description: DeletedAt marks a soft-deleted budget.
+        type: string
+      dueAt:
+        description: DueAt optionally caps a custom budget.
+        type: string
+      id:
+        description: ID identifies the budget.
+        type: string
+      name:
+        description: ID identifies the budget.
+        type: string
+      ownerID:
+        description: ID identifies the budget.
+        type: string
+      period:
+        allOf:
+        - $ref: '#/definitions/domain.BudgetPeriod'
+        description: Period defines the budget window.
+      sharedGroupID:
+        description: ID identifies the budget.
+        type: string
+      thresholdPercent:
+        description: ThresholdPercent triggers an alert when this percentage is reached.
+        type: integer
+      updatedAt:
+        description: CreatedAt and UpdatedAt record projection timestamps.
+        type: string
+    type: object
   domain.ExpenseItem:
     properties:
       amountMinor:
@@ -108,6 +166,25 @@ definitions:
         type: string
       token:
         type: string
+    type: object
+  handler.budgetRequest:
+    properties:
+      amount_limit_minor:
+        type: integer
+      category_id:
+        type: string
+      currency:
+        type: string
+      due_at:
+        type: string
+      name:
+        type: string
+      period:
+        $ref: '#/definitions/domain.BudgetPeriod'
+      shared_group_id:
+        type: string
+      threshold_percent:
+        type: integer
     type: object
   handler.createGroupRequest:
     properties:
@@ -347,6 +424,132 @@ paths:
       summary: Refresh session
       tags:
       - auth
+  /billpiggy/api/v1/budgets/:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/domain.BudgetRecord'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List budgets
+      tags:
+      - budgets
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Budget
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.budgetRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/domain.BudgetRecord'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create budget
+      tags:
+      - budgets
+  /billpiggy/api/v1/budgets/{budgetID}:
+    delete:
+      parameters:
+      - description: Budget ID
+        in: path
+        name: budgetID
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete budget
+      tags:
+      - budgets
+    get:
+      parameters:
+      - description: Budget ID
+        in: path
+        name: budgetID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/domain.BudgetRecord'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get budget
+      tags:
+      - budgets
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Budget ID
+        in: path
+        name: budgetID
+        required: true
+        type: string
+      - description: Budget
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.budgetRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/domain.BudgetRecord'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update budget
+      tags:
+      - budgets
   /billpiggy/api/v1/expenses/:
     get:
       parameters:

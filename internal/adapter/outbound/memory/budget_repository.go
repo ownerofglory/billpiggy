@@ -23,32 +23,49 @@ func (r *BudgetRepository) CreateBudget(_ context.Context, value domain.BudgetRe
 	r.budgets[value.ID] = value
 	return nil
 }
-func (r *BudgetRepository) ListBudgets(_ context.Context, ownerID string) ([]domain.BudgetRecord, error) {
+
+// ListBudgets returns budgets owned by or shared with the viewer.
+func (r *BudgetRepository) ListBudgets(_ context.Context, ownerID string, sharedGroupIDs []string) ([]domain.BudgetRecord, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	values := []domain.BudgetRecord{}
 	for _, value := range r.budgets {
-		if value.OwnerID == ownerID && value.DeletedAt == nil {
+		if (value.OwnerID == ownerID || containsGroup(sharedGroupIDs, value.SharedGroupID)) && value.DeletedAt == nil {
 			values = append(values, value)
 		}
 	}
 	return values, nil
 }
-func (r *BudgetRepository) GetBudget(_ context.Context, ownerID, id string) (domain.BudgetRecord, error) {
+
+// GetBudget returns a budget owned by or shared with the viewer.
+func (r *BudgetRepository) GetBudget(_ context.Context, ownerID, id string, sharedGroupIDs []string) (domain.BudgetRecord, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	value, ok := r.budgets[id]
-	if !ok || value.OwnerID != ownerID || value.DeletedAt != nil {
+	if !ok || (value.OwnerID != ownerID && !containsGroup(sharedGroupIDs, value.SharedGroupID)) || value.DeletedAt != nil {
 		return domain.BudgetRecord{}, errNotFound
 	}
 	return value, nil
 }
+
+func containsGroup(groupIDs []string, groupID string) bool {
+	for _, value := range groupIDs {
+		if value == groupID {
+			return true
+		}
+	}
+	return false
+}
+
+// UpdateBudget replaces a budget projection owned by the budget owner.
 func (r *BudgetRepository) UpdateBudget(_ context.Context, value domain.BudgetRecord) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.budgets[value.ID] = value
 	return nil
 }
+
+// DeleteBudget soft-deletes a budget projection owned by the budget owner.
 func (r *BudgetRepository) DeleteBudget(_ context.Context, ownerID, id string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
