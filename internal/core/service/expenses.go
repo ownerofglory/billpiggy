@@ -19,15 +19,16 @@ var ErrInvalidExpense = errors.New("invalid expense")
 type ExpenseService struct {
 	repository outbound.ExpenseRepository
 	events     outbound.EventStore
+	unit       outbound.UnitOfWork
 	now        func() time.Time
 }
 
 // NewExpenseService creates a service with mandatory persistence ports.
-func NewExpenseService(repository outbound.ExpenseRepository, events outbound.EventStore) (*ExpenseService, error) {
-	if repository == nil || events == nil {
-		return nil, errors.New("expense repository and event store are required")
+func NewExpenseService(repository outbound.ExpenseRepository, events outbound.EventStore, unit outbound.UnitOfWork) (*ExpenseService, error) {
+	if repository == nil || events == nil || unit == nil {
+		return nil, errors.New("expense repository, event store, and unit of work are required")
 	}
-	return &ExpenseService{repository: repository, events: events, now: time.Now}, nil
+	return &ExpenseService{repository: repository, events: events, unit: unit, now: time.Now}, nil
 }
 
 // CreateExpense creates an expense for the authenticated owner.
@@ -46,11 +47,18 @@ func (s *ExpenseService) CreateExpense(ctx context.Context, ownerID string, comm
 	if err := validateExpense(expense); err != nil {
 		return domain.ExpenseRecord{}, err
 	}
-	if err := s.events.Append(ctx, newExpenseEvent("expense_added", expense.ID, ownerID, domain.ExpenseAdded{Expense: expense}, now)); err != nil {
-		return domain.ExpenseRecord{}, fmt.Errorf("append expense_added: %w", err)
-	}
-	if err := s.repository.CreateExpense(ctx, expense); err != nil {
-		return domain.ExpenseRecord{}, fmt.Errorf("create expense projection: %w", err)
+	// The event is appended first so the aggregate advisory lock is taken
+	// before any row lock, giving concurrent commands a consistent lock order.
+	if err := s.unit.Within(ctx, func(ctx context.Context) error {
+		if err := s.events.Append(ctx, newExpenseEvent("expense_added", expense.ID, ownerID, domain.ExpenseAdded{Expense: expense}, now)); err != nil {
+			return fmt.Errorf("append expense_added: %w", err)
+		}
+		if err := s.repository.CreateExpense(ctx, expense); err != nil {
+			return fmt.Errorf("create expense projection: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return domain.ExpenseRecord{}, err
 	}
 	return expense, nil
 }
@@ -72,11 +80,16 @@ func (s *ExpenseService) UpdateExpense(ctx context.Context, ownerID, expenseID s
 	if err := validateExpense(expense); err != nil {
 		return domain.ExpenseRecord{}, err
 	}
-	if err := s.events.Append(ctx, newExpenseEvent("expense_updated", expense.ID, ownerID, domain.ExpenseUpdated{Expense: expense}, expense.UpdatedAt)); err != nil {
-		return domain.ExpenseRecord{}, fmt.Errorf("append expense_updated: %w", err)
-	}
-	if err := s.repository.UpdateExpense(ctx, expense); err != nil {
-		return domain.ExpenseRecord{}, fmt.Errorf("update expense projection: %w", err)
+	if err := s.unit.Within(ctx, func(ctx context.Context) error {
+		if err := s.events.Append(ctx, newExpenseEvent("expense_updated", expense.ID, ownerID, domain.ExpenseUpdated{Expense: expense}, expense.UpdatedAt)); err != nil {
+			return fmt.Errorf("append expense_updated: %w", err)
+		}
+		if err := s.repository.UpdateExpense(ctx, expense); err != nil {
+			return fmt.Errorf("update expense projection: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return domain.ExpenseRecord{}, err
 	}
 	return expense, nil
 }
@@ -87,13 +100,15 @@ func (s *ExpenseService) DeleteExpense(ctx context.Context, ownerID, expenseID s
 		return ErrNotFound
 	}
 	now := s.now()
-	if err := s.events.Append(ctx, newExpenseEvent("expense_removed", expenseID, ownerID, domain.ExpenseRemoved{ExpenseID: expenseID, OwnerID: ownerID, RemovedAt: now}, now)); err != nil {
-		return fmt.Errorf("append expense_removed: %w", err)
-	}
-	if err := s.repository.DeleteExpense(ctx, ownerID, expenseID); err != nil {
-		return fmt.Errorf("delete expense projection: %w", err)
-	}
-	return nil
+	return s.unit.Within(ctx, func(ctx context.Context) error {
+		if err := s.events.Append(ctx, newExpenseEvent("expense_removed", expenseID, ownerID, domain.ExpenseRemoved{ExpenseID: expenseID, OwnerID: ownerID, RemovedAt: now}, now)); err != nil {
+			return fmt.Errorf("append expense_removed: %w", err)
+		}
+		if err := s.repository.DeleteExpense(ctx, ownerID, expenseID); err != nil {
+			return fmt.Errorf("delete expense projection: %w", err)
+		}
+		return nil
+	})
 }
 
 // ListExpenses returns recent expenses using owner-scoped search and filters.
@@ -126,10 +141,12 @@ func (s *ExpenseService) AttachReceipt(ctx context.Context, ownerID, expenseID, 
 		return domain.ExpenseRecord{}, ErrInvalidExpense
 	}
 	expense.ReceiptObjectKey, expense.UpdatedAt = objectKey, s.now()
-	if err := s.events.Append(ctx, newExpenseEvent("expense_updated", expense.ID, ownerID, domain.ExpenseUpdated{Expense: expense}, expense.UpdatedAt)); err != nil {
-		return domain.ExpenseRecord{}, err
-	}
-	if err := s.repository.UpdateExpense(ctx, expense); err != nil {
+	if err := s.unit.Within(ctx, func(ctx context.Context) error {
+		if err := s.events.Append(ctx, newExpenseEvent("expense_updated", expense.ID, ownerID, domain.ExpenseUpdated{Expense: expense}, expense.UpdatedAt)); err != nil {
+			return err
+		}
+		return s.repository.UpdateExpense(ctx, expense)
+	}); err != nil {
 		return domain.ExpenseRecord{}, err
 	}
 	return expense, nil

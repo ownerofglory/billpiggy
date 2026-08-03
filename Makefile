@@ -7,10 +7,10 @@ BIN_DIR ?= bin
 TARGET_NAME ?= billpiggy
 HELM_IMAGE_REPOSITORY ?= example.invalid/billpiggy
 
-.PHONY: help run test coverage fmt vet build check generate generate-openapi helm-lint helm-template clean
+.PHONY: help run test test-integration coverage fmt vet build check generate generate-openapi helm-lint helm-template clean
 
 help:
-	@echo "Targets: run test coverage fmt vet build check generate generate-openapi helm-lint helm-template clean"
+	@echo "Targets: run test test-integration coverage fmt vet build check generate generate-openapi helm-lint helm-template clean"
 	@echo "Build version: $(BUILD_VERSION)"
 
 run:
@@ -18,6 +18,13 @@ run:
 
 test:
 	go test ./...
+
+# Integration tests need a disposable PostgreSQL; they drop and recreate the
+# schema on every run. Start one with `docker compose up -d postgres minio`.
+TEST_DATABASE_URL ?= postgres://billpiggy:billpiggy@localhost:5432/billpiggy?sslmode=disable
+
+test-integration:
+	TEST_DATABASE_URL="$(TEST_DATABASE_URL)" go test -tags=integration -race ./...
 
 coverage:
 	go test -race -coverprofile=coverage.out ./...

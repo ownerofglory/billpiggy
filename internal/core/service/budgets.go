@@ -16,15 +16,16 @@ type BudgetService struct {
 	repository outbound.BudgetRepository
 	events     outbound.EventStore
 	groups     outbound.GroupRepository
+	unit       outbound.UnitOfWork
 	now        func() time.Time
 }
 
 // NewBudgetService creates a budget service.
-func NewBudgetService(repository outbound.BudgetRepository, events outbound.EventStore, groups outbound.GroupRepository) (*BudgetService, error) {
-	if repository == nil || events == nil || groups == nil {
-		return nil, errors.New("budget repository, event store, and group repository are required")
+func NewBudgetService(repository outbound.BudgetRepository, events outbound.EventStore, groups outbound.GroupRepository, unit outbound.UnitOfWork) (*BudgetService, error) {
+	if repository == nil || events == nil || groups == nil || unit == nil {
+		return nil, errors.New("budget repository, event store, group repository, and unit of work are required")
 	}
-	return &BudgetService{repository: repository, events: events, groups: groups, now: time.Now}, nil
+	return &BudgetService{repository: repository, events: events, groups: groups, unit: unit, now: time.Now}, nil
 }
 
 // CreateBudget creates an owner-scoped budget.
@@ -41,10 +42,18 @@ func (s *BudgetService) CreateBudget(ctx context.Context, owner domain.AppUser, 
 	if err := s.validateSharedGroup(ctx, owner, budget.SharedGroupID); err != nil {
 		return domain.BudgetRecord{}, err
 	}
-	if err := s.events.Append(ctx, outbound.DomainEvent{ID: uuid.NewString(), AggregateType: "budget", AggregateID: budget.ID, EventType: "budget_created", Payload: domain.BudgetCreated{Budget: budget}, OccurredAt: budget.CreatedAt.UnixMilli(), ActorID: owner.ID}); err != nil {
+	// The event is appended first so the aggregate advisory lock is taken
+	// before any row lock, giving concurrent commands a consistent lock order.
+	err := s.unit.Within(ctx, func(ctx context.Context) error {
+		if err := s.events.Append(ctx, outbound.DomainEvent{ID: uuid.NewString(), AggregateType: "budget", AggregateID: budget.ID, EventType: "budget_created", Payload: domain.BudgetCreated{Budget: budget}, OccurredAt: budget.CreatedAt.UnixMilli(), ActorID: owner.ID}); err != nil {
+			return err
+		}
+		return s.repository.CreateBudget(ctx, budget)
+	})
+	if err != nil {
 		return domain.BudgetRecord{}, err
 	}
-	return budget, s.repository.CreateBudget(ctx, budget)
+	return budget, nil
 }
 
 // ListBudgets lists budgets owned by the current user.
@@ -90,10 +99,12 @@ func (s *BudgetService) UpdateBudget(ctx context.Context, owner domain.AppUser, 
 	if err := s.validateSharedGroup(ctx, owner, budget.SharedGroupID); err != nil {
 		return domain.BudgetRecord{}, err
 	}
-	if err := s.events.Append(ctx, outbound.DomainEvent{ID: uuid.NewString(), AggregateType: "budget", AggregateID: budget.ID, EventType: "budget_updated", Payload: domain.BudgetUpdated{Budget: budget}, OccurredAt: budget.UpdatedAt.UnixMilli(), ActorID: owner.ID}); err != nil {
-		return domain.BudgetRecord{}, err
-	}
-	if err := s.repository.UpdateBudget(ctx, budget); err != nil {
+	if err := s.unit.Within(ctx, func(ctx context.Context) error {
+		if err := s.events.Append(ctx, outbound.DomainEvent{ID: uuid.NewString(), AggregateType: "budget", AggregateID: budget.ID, EventType: "budget_updated", Payload: domain.BudgetUpdated{Budget: budget}, OccurredAt: budget.UpdatedAt.UnixMilli(), ActorID: owner.ID}); err != nil {
+			return err
+		}
+		return s.repository.UpdateBudget(ctx, budget)
+	}); err != nil {
 		return domain.BudgetRecord{}, err
 	}
 	return budget, nil
@@ -106,10 +117,12 @@ func (s *BudgetService) DeleteBudget(ctx context.Context, owner domain.AppUser, 
 		return ErrNotFound
 	}
 	now := s.now()
-	if err := s.events.Append(ctx, outbound.DomainEvent{ID: uuid.NewString(), AggregateType: "budget", AggregateID: budget.ID, EventType: "budget_removed", Payload: domain.BudgetRemoved{BudgetID: budget.ID, OwnerID: owner.ID, RemovedAt: now}, OccurredAt: now.UnixMilli(), ActorID: owner.ID}); err != nil {
-		return err
-	}
-	return s.repository.DeleteBudget(ctx, owner.ID, budgetID)
+	return s.unit.Within(ctx, func(ctx context.Context) error {
+		if err := s.events.Append(ctx, outbound.DomainEvent{ID: uuid.NewString(), AggregateType: "budget", AggregateID: budget.ID, EventType: "budget_removed", Payload: domain.BudgetRemoved{BudgetID: budget.ID, OwnerID: owner.ID, RemovedAt: now}, OccurredAt: now.UnixMilli(), ActorID: owner.ID}); err != nil {
+			return err
+		}
+		return s.repository.DeleteBudget(ctx, owner.ID, budgetID)
+	})
 }
 
 func (s *BudgetService) visibleGroupIDs(ctx context.Context, viewer domain.AppUser) ([]string, error) {
