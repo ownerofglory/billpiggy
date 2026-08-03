@@ -45,7 +45,7 @@ func main() {
 	// Chi setup
 	r := chi.NewRouter()
 	healthRegistry := health.NewRegistry()
-	identityRepository, expenseRepository, budgetRepository, groupRepository, taxonomyRepository, analyticsRepository, notificationRepository, eventStore, closeRepository := applicationStores(cfg, healthRegistry)
+	identityRepository, expenseRepository, budgetRepository, groupRepository, taxonomyRepository, analyticsRepository, notificationRepository, eventStore, projectEvents, closeRepository := applicationStores(cfg, healthRegistry)
 	defer closeRepository()
 	authService, err := service.NewAuthService(identityRepository, service.AuthConfig{
 		JWTSecret: cfg.JWTSecret, BootstrapSuperAdminEmail: cfg.BootstrapSuperAdminEmail, BootstrapSuperAdminPassword: cfg.BootstrapSuperAdminPassword,
@@ -96,6 +96,9 @@ func main() {
 		}
 		go deliverNotifications(notifications, identityRepository, sender)
 	}
+	if projectEvents != nil {
+		go runExpenseProjector(projectEvents)
+	}
 
 	// HTTP handler setup
 	r.Get(handler.GetVersionPath, handler.HandleGetVersion)
@@ -144,10 +147,10 @@ func main() {
 	slog.Info("App finished")
 }
 
-func applicationStores(cfg config.BillPiggyAppConfig, healthRegistry *health.Registry) (outbound.IdentityRepository, outbound.ExpenseRepository, outbound.BudgetRepository, outbound.GroupRepository, outbound.TaxonomyRepository, outbound.AnalyticsRepository, outbound.NotificationRepository, outbound.EventStore, func()) {
+func applicationStores(cfg config.BillPiggyAppConfig, healthRegistry *health.Registry) (outbound.IdentityRepository, outbound.ExpenseRepository, outbound.BudgetRepository, outbound.GroupRepository, outbound.TaxonomyRepository, outbound.AnalyticsRepository, outbound.NotificationRepository, outbound.EventStore, func(context.Context) (int, error), func()) {
 	if cfg.DatabaseURL == "" {
 		slog.Warn("using in-memory identity storage; set DATABASE_URL for persistent data")
-		return memory.NewIdentityRepository(), memory.NewExpenseRepository(), memory.NewBudgetRepository(), memory.NewGroupRepository(), memory.NewTaxonomyRepository(), memory.NewAnalyticsRepository(), memory.NewNotificationRepository(), memory.NewEventStore(), func() {}
+		return memory.NewIdentityRepository(), memory.NewExpenseRepository(), memory.NewBudgetRepository(), memory.NewGroupRepository(), memory.NewTaxonomyRepository(), memory.NewAnalyticsRepository(), memory.NewNotificationRepository(), memory.NewEventStore(), nil, func() {}
 	}
 	pool, err := pgxpool.New(context.Background(), cfg.DatabaseURL)
 	if err != nil {
@@ -156,7 +159,19 @@ func applicationStores(cfg config.BillPiggyAppConfig, healthRegistry *health.Reg
 	}
 	identity := postgresadapter.NewIdentityRepository(pool)
 	healthRegistry.Register("postgres", identity.Ping)
-	return identity, postgresadapter.NewExpenseRepository(pool), postgresadapter.NewBudgetRepository(pool), postgresadapter.NewGroupRepository(pool), postgresadapter.NewTaxonomyRepository(pool), postgresadapter.NewAnalyticsRepository(pool), postgresadapter.NewNotificationRepository(pool), postgresadapter.NewEventStore(pool), pool.Close
+	projector := postgresadapter.NewExpenseProjector(pool)
+	return identity, postgresadapter.NewExpenseRepository(pool), postgresadapter.NewBudgetRepository(pool), postgresadapter.NewGroupRepository(pool), postgresadapter.NewTaxonomyRepository(pool), postgresadapter.NewAnalyticsRepository(pool), postgresadapter.NewNotificationRepository(pool), postgresadapter.NewEventStore(pool), func(ctx context.Context) (int, error) { return projector.ProjectPending(ctx, 50) }, pool.Close
+}
+
+func runExpenseProjector(project func(context.Context) (int, error)) {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	for {
+		if _, err := project(context.Background()); err != nil {
+			slog.Error("project expense events", "error", err)
+		}
+		<-ticker.C
+	}
 }
 
 func deliverNotifications(notifications *service.NotificationService, users outbound.IdentityRepository, sender service.EmailSender) {
