@@ -85,6 +85,13 @@ database access. Start with a per-user limit of 10 assistant requests/minute and
 receipt extractions/day; limits are configuration values and administrators can lower
 them.
 
+The authenticated assistant chat endpoint is an SSE stream. `POST
+/billpiggy/api/v1/assistant/chat` responds with `text/event-stream` and emits
+`message.started`, `message.delta`, `message.citation`, `message.completed`, and
+`message.error` events. The handler flushes each event, stops OpenAI work when the
+client disconnects, and never includes a token, database error, or internal tool
+payload in an error event.
+
 OpenAI's current model catalog describes GPT-5.6 Luna as optimized for cost-sensitive
 workloads and GPT-4o mini as a low-cost image-capable model. See the [model catalog](https://developers.openai.com/api/docs/models) and [GPT-4o mini reference](https://developers.openai.com/api/docs/models/gpt-4o-mini).
 
