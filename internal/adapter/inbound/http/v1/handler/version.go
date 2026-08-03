@@ -16,9 +16,11 @@ var BillPiggyVersion = "default"
 // HandleGetVersion is an HTTP handler that responds with the current
 // application version.
 //
-// Response:
-//
-//	200 OK with the version string in the response body.
+//	@Summary	Get application version
+//	@Tags		health
+//	@Produce	plain
+//	@Success	200	{string}	string
+//	@Router		/billpiggy/api/v1/version [get]
 func HandleGetVersion(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)

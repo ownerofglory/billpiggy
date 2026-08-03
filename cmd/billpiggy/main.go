@@ -13,7 +13,7 @@ import (
 	"github.com/caarlos0/env/v11"
 	"github.com/go-chi/chi/v5"
 	"github.com/ownerofglory/billpiggy/config"
-	"github.com/ownerofglory/billpiggy/internal/adapter/http/v1/handler"
+	"github.com/ownerofglory/billpiggy/internal/adapter/inbound/http/v1/handler"
 )
 
 func main() {
