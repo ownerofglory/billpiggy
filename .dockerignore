@@ -1,0 +1,6 @@
+.git
+.github
+.idea
+bin
+coverage.out
+release
