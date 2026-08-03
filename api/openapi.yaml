@@ -1,5 +1,17 @@
 basePath: /
 definitions:
+  domain.AnalyticsPeriod:
+    enum:
+    - day
+    - week
+    - month
+    - year
+    type: string
+    x-enum-varnames:
+    - AnalyticsDay
+    - AnalyticsWeek
+    - AnalyticsMonth
+    - AnalyticsYear
   domain.BudgetPeriod:
     enum:
     - daily
@@ -114,6 +126,36 @@ definitions:
       title:
         type: string
       updatedAt:
+        type: string
+    type: object
+  domain.ExpenseRollup:
+    properties:
+      amountMinor:
+        description: AmountMinor is the aggregate in currency minor units.
+        format: int64
+        type: integer
+      categoryID:
+        description: CategoryID optionally identifies the aggregated category.
+        type: string
+      currency:
+        description: Currency is the ISO 4217 currency code.
+        type: string
+      expenseCount:
+        description: ExpenseCount is the number of included expenses.
+        format: int64
+        type: integer
+      ownerID:
+        description: OwnerID identifies the user whose expenses were aggregated.
+        type: string
+      period:
+        allOf:
+        - $ref: '#/definitions/domain.AnalyticsPeriod'
+        description: Period identifies the rollup window size.
+      periodStart:
+        description: PeriodStart is the inclusive start of the aggregation window.
+        type: string
+      tagID:
+        description: TagID optionally identifies the aggregated tag.
         type: string
     type: object
   domain.ExpenseStatus:
@@ -275,6 +317,53 @@ info:
   title: BillPiggy API
   version: "1.0"
 paths:
+  /billpiggy/api/v1/analytics/expenses:
+    get:
+      parameters:
+      - description: day, week, month, or year
+        in: query
+        name: period
+        required: true
+        type: string
+      - description: RFC3339 inclusive start
+        in: query
+        name: from
+        required: true
+        type: string
+      - description: RFC3339 inclusive end
+        in: query
+        name: to
+        required: true
+        type: string
+      - description: Category ID
+        in: query
+        name: category_id
+        type: string
+      - collectionFormat: csv
+        description: Tag IDs
+        in: query
+        items:
+          type: string
+        name: tag_id
+        type: array
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/domain.ExpenseRollup'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get expense analytics
+      tags:
+      - analytics
   /billpiggy/api/v1/assistant/chat:
     post:
       consumes:
