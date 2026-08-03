@@ -28,6 +28,14 @@ that production deployment requires approval.
 | `SMTP_FROM` | Optional | Sender address for BillPiggy notification email. |
 | `DOCKER_USER` | Image workflows | Docker Hub user used as the default image namespace. |
 | `DOCKER_TOKEN` | Image workflows | Docker Hub access token. |
+| `POSTGRES_PASSWORD` | IaC workflow | Password for the PostgreSQL application and administrative users. |
+| `MINIO_ROOT_USER` | IaC workflow | MinIO root access key. |
+| `MINIO_ROOT_PASSWORD` | IaC workflow | MinIO root secret key. |
+| `TF_HTTP_ADDRESS` | IaC workflow | HTTP Terraform state endpoint. |
+| `TF_HTTP_USERNAME` | IaC workflow | HTTP state backend user, if required. |
+| `TF_HTTP_PASSWORD` | IaC workflow | HTTP state backend password, if required. |
+| `TF_HTTP_LOCK_ADDRESS` | IaC workflow | HTTP state-lock endpoint, if supported. |
+| `TF_HTTP_UNLOCK_ADDRESS` | IaC workflow | HTTP state-unlock endpoint, if supported. |
 
 Keep the bootstrap credentials available after initial deployment. They are only used
 when no super-admin exists, but are needed if a newly provisioned database must be
@@ -43,6 +51,8 @@ bootstrapped.
 | `INGRESS_CLUSTER_ISSUER` | Yes | `letsencrypt-prod` |
 | `INGRESS_TLS_SECRET_NAME` | Yes | `billpiggy-tls` |
 | `LOG_LEVEL` | Optional | `info` |
+| `INFRASTRUCTURE_NAMESPACE` | IaC workflow | `billpiggy-infra` |
+| `K3S_STORAGE_CLASS` | IaC workflow | `local-path` |
 
 ## Database migrations
 
@@ -59,6 +69,10 @@ The [Terraform infrastructure root](../infra/terraform) provisions the initial
 PostgreSQL and MinIO releases for k3s. Use its protected manual workflow before
 deploying the application. It needs additional Terraform-state and dependency
 credentials; see its [README](../infra/terraform/README.md).
+
+Choose `plan` first. The `apply` action requires the literal confirmation `APPLY`.
+Terraform apply is intentionally prohibited on local machines; only the protected
+GitHub Actions workflow is authorized to make infrastructure changes.
 
 ## Run a deployment
 
