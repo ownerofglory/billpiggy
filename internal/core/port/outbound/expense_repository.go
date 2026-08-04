@@ -2,6 +2,7 @@ package outbound
 
 import (
 	"context"
+	"time"
 
 	"github.com/ownerofglory/billpiggy/internal/core/domain"
 )
@@ -21,8 +22,11 @@ type ExpenseListFilter struct {
 	Query      string
 	CategoryID string
 	TagIDs     []string
-	Limit      int
-	Offset     int
+	// From and To optionally bound OccurredAt to the half-open window
+	// [From, To). Either may be zero to leave that bound open.
+	From, To time.Time
+	Limit    int
+	Offset   int
 }
 
 // EventStore appends domain events. A production implementation appends an outbox

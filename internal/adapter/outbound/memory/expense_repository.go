@@ -103,6 +103,12 @@ func matchesExpense(expense domain.ExpenseRecord, filter outbound.ExpenseListFil
 	if filter.CategoryID != "" && expense.CategoryID != filter.CategoryID {
 		return false
 	}
+	if !filter.From.IsZero() && expense.OccurredAt.Before(filter.From) {
+		return false
+	}
+	if !filter.To.IsZero() && !expense.OccurredAt.Before(filter.To) {
+		return false
+	}
 	for _, wantedTagID := range filter.TagIDs {
 		found := false
 		for _, tagID := range expense.TagIDs {

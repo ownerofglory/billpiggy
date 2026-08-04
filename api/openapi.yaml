@@ -254,6 +254,40 @@ definitions:
         description: Title is what this line item was for.
         type: string
     type: object
+  domain.Report:
+    properties:
+      createdAt:
+        description: CreatedAt is when the report was generated.
+        type: string
+      format:
+        allOf:
+        - $ref: '#/definitions/domain.ReportFormat'
+        description: Format is the file format the report was rendered in.
+      id:
+        description: ID identifies the report.
+        type: string
+      objectKey:
+        description: ObjectKey is the report's location in object storage.
+        type: string
+      ownerID:
+        description: OwnerID is the user the report was generated for.
+        type: string
+      periodKind:
+        allOf:
+        - $ref: '#/definitions/domain.AnalyticsPeriod'
+        description: 'PeriodKind is the report''s granularity: week, month, or year.'
+      periodStart:
+        description: PeriodStart is the inclusive start of the reported period.
+        type: string
+    type: object
+  domain.ReportFormat:
+    enum:
+    - csv
+    - pdf
+    type: string
+    x-enum-varnames:
+    - ReportFormatCSV
+    - ReportFormatPDF
   domain.UserGroup:
     properties:
       createdAt:
@@ -1120,6 +1154,46 @@ paths:
       tags:
       - groups
       - administration
+  /billpiggy/api/v1/reports:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/domain.Report'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List generated reports
+      tags:
+      - reports
+  /billpiggy/api/v1/reports/{reportID}/download:
+    get:
+      parameters:
+      - description: Report ID
+        in: path
+        name: reportID
+        required: true
+        type: string
+      responses:
+        "302":
+          description: Found
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Download a generated report
+      tags:
+      - reports
   /billpiggy/api/v1/taxonomy/categories:
     get:
       produces:

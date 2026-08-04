@@ -82,6 +82,14 @@ func (r *ExpenseRepository) ListExpenses(ctx context.Context, filter outbound.Ex
 		args = append(args, filter.CategoryID)
 		query += fmt.Sprintf(" and e.category_id = $%d", len(args))
 	}
+	if !filter.From.IsZero() {
+		args = append(args, filter.From)
+		query += fmt.Sprintf(" and e.occurred_at >= $%d", len(args))
+	}
+	if !filter.To.IsZero() {
+		args = append(args, filter.To)
+		query += fmt.Sprintf(" and e.occurred_at < $%d", len(args))
+	}
 	// Tag filtering belongs in SQL: applying it in Go after LIMIT/OFFSET would
 	// silently return short pages. An expense matches when it carries every
 	// requested tag, so the match count must equal the requested count.

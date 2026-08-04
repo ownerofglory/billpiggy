@@ -60,6 +60,7 @@ type stores struct {
 	notifications outbound.NotificationRepository
 	objectRefs    outbound.ObjectReferenceRepository
 	aiRequests    outbound.AIRequestRepository
+	reports       outbound.ReportRepository
 	events        outbound.EventStore
 	outboxStore   outbox.Store
 	subscriptions subscriptionRegistrar
@@ -173,6 +174,12 @@ func main() {
 		os.Exit(1)
 	}
 	go sweepOrphanedObjects(ctx, retentionService)
+	reportService, err := service.NewReportService(adapters.reports, adapters.expenses, adapters.taxonomy, adapters.identity, objectStore, adapters.notifications)
+	if err != nil {
+		slog.Error("configure reports", "error", err)
+		os.Exit(1)
+	}
+	go generateReports(ctx, reportService)
 	if adapters.pool != nil {
 		go cleanupRateLimitWindows(ctx, postgresadapter.NewRateLimiter(adapters.pool, 0, 0))
 	}
@@ -237,6 +244,7 @@ func main() {
 	handler.RegisterTaxonomyRoutes(r, taxonomyService, handler.NewAuthMiddleware(authService))
 	handler.RegisterGroupRoutes(r, groupService, handler.NewAuthMiddleware(authService))
 	handler.RegisterAssistantRoutes(r, assistantService, authService, handler.NewAuthMiddleware(authService))
+	handler.RegisterReportRoutes(r, reportService, objectStore, handler.NewAuthMiddleware(authService))
 	r.Get("/livez", healthRegistry.Live)
 	r.Get("/readyz", healthRegistry.Ready)
 	r.Get("/startupz", healthRegistry.Startup)
@@ -353,6 +361,7 @@ func applicationStores(cfg config.BillPiggyAppConfig, healthRegistry *health.Reg
 		notifications: postgresadapter.NewNotificationRepository(pool),
 		objectRefs:    postgresadapter.NewObjectReferenceRepository(pool),
 		aiRequests:    postgresadapter.NewAIRequestRepository(pool),
+		reports:       postgresadapter.NewReportRepository(pool),
 		events:        postgresadapter.NewEventStore(pool),
 		outboxStore:   outboxStore,
 		subscriptions: outboxStore,
@@ -375,8 +384,9 @@ func memoryStores() stores {
 	notifications := memory.NewNotificationRepository()
 	objectRefs := memory.NewObjectReferenceRepository()
 	aiRequests := memory.NewAIRequestRepository()
+	reports := memory.NewReportRepository()
 	events := memory.NewEventStore()
-	unit := memory.NewUnitOfWork(expenses, budgets, analytics, budgetUsage, audit, notifications, objectRefs, taxonomy, events)
+	unit := memory.NewUnitOfWork(expenses, budgets, analytics, budgetUsage, audit, notifications, objectRefs, taxonomy, reports, events)
 	events.WithUnitOfWork(unit)
 	return stores{
 		unit:          unit,
@@ -391,6 +401,7 @@ func memoryStores() stores {
 		notifications: notifications,
 		objectRefs:    objectRefs,
 		aiRequests:    aiRequests,
+		reports:       reports,
 		events:        events,
 		outboxStore:   events,
 		subscriptions: events,
@@ -408,6 +419,31 @@ func sweepOrphanedObjects(ctx context.Context, retention *service.RetentionServi
 			slog.Error("sweep orphaned objects", "error", err)
 		} else if swept > 0 {
 			slog.Info("swept orphaned objects", "count", swept)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+// generateReports periodically generates every weekly/monthly/yearly report
+// that has become due since the last tick.
+//
+// An hourly tick is far more frequent than any report period, so this does
+// not race to produce the same report the moment it becomes due: it is a
+// deliberately relaxed cadence for a background job, and GenerateDue's
+// existence check against already-generated reports means a redundant tick
+// costs one query per user and no rendering work.
+func generateReports(ctx context.Context, reports *service.ReportService) {
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		if generated, err := reports.GenerateDue(ctx, time.Now()); err != nil {
+			slog.Error("generate due reports", "error", err)
+		} else if generated > 0 {
+			slog.Info("generated due reports", "count", generated)
 		}
 		select {
 		case <-ctx.Done():

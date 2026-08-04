@@ -104,7 +104,7 @@ func (h uploadHandler) downloadProfileImage(w http.ResponseWriter, r *http.Reque
 		writeJSONError(w, 404, "profile image not found")
 		return
 	}
-	h.serveObject(w, r, user.ProfileImageObjectKey)
+	serveObject(w, r, h.objects, user.ProfileImageObjectKey)
 }
 
 // receipt uploads an image or PDF receipt for an expense. Image receipts are
@@ -162,14 +162,14 @@ func (h uploadHandler) downloadReceipt(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, 404, "receipt not found")
 		return
 	}
-	h.serveObject(w, r, expense.ReceiptObjectKey)
+	serveObject(w, r, h.objects, expense.ReceiptObjectKey)
 }
 
 // serveObject redirects to a presigned URL when the store supports one, and
 // falls back to streaming the object through this handler otherwise — which
 // is what the in-memory store used in local development needs.
-func (h uploadHandler) serveObject(w http.ResponseWriter, r *http.Request, objectKey string) {
-	url, err := h.objects.PresignedGetURL(r.Context(), objectKey, presignTTL)
+func serveObject(w http.ResponseWriter, r *http.Request, objects outbound.ObjectStore, objectKey string) {
+	url, err := objects.PresignedGetURL(r.Context(), objectKey, presignTTL)
 	switch {
 	case err == nil:
 		http.Redirect(w, r, url, http.StatusFound)
@@ -181,7 +181,7 @@ func (h uploadHandler) serveObject(w http.ResponseWriter, r *http.Request, objec
 		writeJSONError(w, 502, "could not access object")
 		return
 	}
-	object, err := h.objects.Get(r.Context(), objectKey)
+	object, err := objects.Get(r.Context(), objectKey)
 	if err != nil {
 		if errors.Is(err, outbound.ErrObjectNotFound) {
 			writeJSONError(w, 404, "object not found")

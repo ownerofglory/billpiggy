@@ -102,7 +102,7 @@ func truncateAll(t *testing.T, pool *pgxpool.Pool) {
 			budgets.budget_usage, budgets.expense_contributions, budgets.budgets,
 			expenses.expense_items, expenses.expense_tags, expenses.expenses, expenses.tags,
 			audit.entries, notifications.deliveries, files.object_references,
-			ai.requests, ratelimit.windows,
+			ai.requests, ratelimit.windows, reports.reports,
 			identity.group_members, identity.groups, identity.refresh_tokens, identity.invitations, identity.users
 		restart identity cascade`)
 	if err != nil {
