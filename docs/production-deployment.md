@@ -58,6 +58,8 @@ bootstrapped.
 | `K3S_STORAGE_CLASS` | IaC workflow | `local-path` |
 | `MINIO_BUCKET` | Optional | `billpiggy` |
 | `MINIO_USE_SSL` | Optional | `false` for the in-cluster MinIO service |
+| `OPENAI_ASSISTANT_MODEL` | Optional | `gpt-5.6-luna` |
+| `OPENAI_BASE_URL` | Optional | Empty routes to `api.openai.com`; set to point the assistant at a compatible gateway instead. |
 
 ## Database migrations
 

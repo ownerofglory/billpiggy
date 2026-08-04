@@ -254,9 +254,17 @@ func (c *Client) params(request domain.CompletionRequest) (openai.ChatCompletion
 }
 
 // convertMessages maps domain messages onto provider message params.
+//
+// Consecutive assistant tool-call messages are merged into one provider
+// message carrying every tool_calls entry, because the Chat Completions API
+// expects the tool calls a single turn requested to arrive together, followed
+// immediately by their results — not interleaved assistant/tool/assistant/tool
+// turns. domain.Message models one call per message for a simpler domain
+// shape, so the merge happens here at the transport boundary instead.
 func convertMessages(messages []domain.Message) []openai.ChatCompletionMessageParamUnion {
 	converted := make([]openai.ChatCompletionMessageParamUnion, 0, len(messages))
-	for _, message := range messages {
+	for index := 0; index < len(messages); index++ {
+		message := messages[index]
 		switch message.Role {
 		case domain.RoleSystem:
 			if message.Text != nil {
@@ -274,7 +282,20 @@ func convertMessages(messages []domain.Message) []openai.ChatCompletionMessagePa
 				converted = append(converted, openai.UserMessage(parts))
 			}
 		case domain.RoleAssistant:
-			converted = appendAssistantMessage(converted, message)
+			if !isToolCallMessage(message) {
+				if message.Text != nil {
+					converted = append(converted, openai.AssistantMessage(*message.Text))
+				}
+				continue
+			}
+			calls := []openai.ChatCompletionMessageToolCallUnionParam{toolCallParam(message)}
+			for index+1 < len(messages) && isToolCallMessage(messages[index+1]) {
+				index++
+				calls = append(calls, toolCallParam(messages[index]))
+			}
+			converted = append(converted, openai.ChatCompletionMessageParamUnion{
+				OfAssistant: &openai.ChatCompletionAssistantMessageParam{ToolCalls: calls},
+			})
 		case domain.RoleTool:
 			if message.ToolCallID != nil && message.Text != nil {
 				converted = append(converted, openai.ToolMessage(*message.Text, *message.ToolCallID))
@@ -284,27 +305,23 @@ func convertMessages(messages []domain.Message) []openai.ChatCompletionMessagePa
 	return converted
 }
 
-// appendAssistantMessage adds either a tool request or plain assistant text.
-func appendAssistantMessage(converted []openai.ChatCompletionMessageParamUnion, message domain.Message) []openai.ChatCompletionMessageParamUnion {
-	if message.ToolCallID != nil && message.ToolName != nil && message.ToolArgs != nil {
-		return append(converted, openai.ChatCompletionMessageParamUnion{
-			OfAssistant: &openai.ChatCompletionAssistantMessageParam{
-				ToolCalls: []openai.ChatCompletionMessageToolCallUnionParam{{
-					OfFunction: &openai.ChatCompletionMessageFunctionToolCallParam{
-						ID: *message.ToolCallID,
-						Function: openai.ChatCompletionMessageFunctionToolCallFunctionParam{
-							Name:      *message.ToolName,
-							Arguments: *message.ToolArgs,
-						},
-					},
-				}},
+// isToolCallMessage reports whether a domain message represents one requested
+// tool call rather than plain assistant text.
+func isToolCallMessage(message domain.Message) bool {
+	return message.Role == domain.RoleAssistant && message.ToolCallID != nil && message.ToolName != nil && message.ToolArgs != nil
+}
+
+// toolCallParam converts one tool-call domain message into a provider tool_calls entry.
+func toolCallParam(message domain.Message) openai.ChatCompletionMessageToolCallUnionParam {
+	return openai.ChatCompletionMessageToolCallUnionParam{
+		OfFunction: &openai.ChatCompletionMessageFunctionToolCallParam{
+			ID: *message.ToolCallID,
+			Function: openai.ChatCompletionMessageFunctionToolCallFunctionParam{
+				Name:      *message.ToolName,
+				Arguments: *message.ToolArgs,
 			},
-		})
+		},
 	}
-	if message.Text != nil {
-		return append(converted, openai.AssistantMessage(*message.Text))
-	}
-	return converted
 }
 
 // convertTools maps domain tools onto provider tool params.

@@ -132,6 +132,60 @@ func TestCompleteRejectsAnEmptyConversation(t *testing.T) {
 	}
 }
 
+func TestCompleteMergesConsecutiveToolCallMessagesIntoOneTurn(t *testing.T) {
+	t.Parallel()
+	// The Chat Completions API expects the tool calls one turn requested to
+	// arrive together in a single assistant message, followed immediately by
+	// their results — not interleaved assistant/tool/assistant/tool turns.
+	// domain.Message models one call per message, so the adapter must merge
+	// adjacent ones back into the wire format the API actually requires.
+	recorded := &capture{}
+	url := newServer(t, recorded, jsonResponse(`{"choices":[{"index":0,"message":{"role":"assistant","content":"done"}}]}`))
+	client := newClient(t, url)
+
+	_, err := client.Complete(context.Background(), domain.CompletionRequest{
+		Messages: []domain.Message{
+			domain.UserMessage("what did I spend and what are my budgets?"),
+			domain.AssistantToolCallMessage(domain.ToolCall{ID: "call_1", Name: "query_expenses", ArgsRaw: `{}`}),
+			domain.AssistantToolCallMessage(domain.ToolCall{ID: "call_2", Name: "query_budgets", ArgsRaw: `{}`}),
+			domain.ToolResultMessage("call_1", `{"expenses":[]}`),
+			domain.ToolResultMessage("call_2", `{"budgets":[]}`),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+
+	messages, _ := recorded.body["messages"].([]any)
+	if len(messages) != 4 {
+		t.Fatalf("sent %d messages, want user, one merged assistant turn, and two tool results: %#v", len(messages), messages)
+	}
+	assistantTurn, _ := messages[1].(map[string]any)
+	if assistantTurn["role"] != "assistant" {
+		t.Fatalf("messages[1] role = %v, want assistant", assistantTurn["role"])
+	}
+	toolCalls, _ := assistantTurn["tool_calls"].([]any)
+	if len(toolCalls) != 2 {
+		t.Fatalf("merged assistant turn carries %d tool_calls, want both calls together: %#v", len(toolCalls), assistantTurn)
+	}
+	first, _ := toolCalls[0].(map[string]any)
+	if first["id"] != "call_1" {
+		t.Fatalf("first tool call = %#v, want call_1 preserved in order", first)
+	}
+	second, _ := toolCalls[1].(map[string]any)
+	if second["id"] != "call_2" {
+		t.Fatalf("second tool call = %#v, want call_2 preserved in order", second)
+	}
+	toolMessage1, _ := messages[2].(map[string]any)
+	toolMessage2, _ := messages[3].(map[string]any)
+	if toolMessage1["role"] != "tool" || toolMessage1["tool_call_id"] != "call_1" {
+		t.Fatalf("messages[2] = %#v, want the call_1 result immediately after the merged turn", toolMessage1)
+	}
+	if toolMessage2["role"] != "tool" || toolMessage2["tool_call_id"] != "call_2" {
+		t.Fatalf("messages[3] = %#v, want the call_2 result following it", toolMessage2)
+	}
+}
+
 func TestCompleteSurfacesProviderErrors(t *testing.T) {
 	t.Parallel()
 	url := newServer(t, nil, func(w http.ResponseWriter, _ *http.Request) {

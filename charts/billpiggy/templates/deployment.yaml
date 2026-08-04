@@ -41,6 +41,12 @@ spec:
               value: {{ .Values.env.serverAddr | quote }}
             - name: LOG_LEVEL
               value: {{ .Values.env.logLevel | quote }}
+            - name: OPENAI_ASSISTANT_MODEL
+              value: {{ .Values.env.openAIAssistantModel | quote }}
+            {{- if .Values.env.openAIBaseURL }}
+            - name: OPENAI_BASE_URL
+              value: {{ .Values.env.openAIBaseURL | quote }}
+            {{- end }}
           envFrom:
             - secretRef:
                 name: {{ default (include "billpiggy.fullname" .) .Values.existingSecret }}

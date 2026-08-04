@@ -28,10 +28,15 @@ func newAssistant(t *testing.T, provider *memory.AIProvider) (*service.Assistant
 
 func seedExpense(t *testing.T, repository *memory.ExpenseRepository, ownerID, title string, amountMinor int64) {
 	t.Helper()
+	seedExpenseAt(t, repository, ownerID, title, amountMinor, time.Now().UTC())
+}
+
+func seedExpenseAt(t *testing.T, repository *memory.ExpenseRepository, ownerID, title string, amountMinor int64, occurredAt time.Time) {
+	t.Helper()
 	now := time.Now().UTC()
 	err := repository.CreateExpense(context.Background(), domain.ExpenseRecord{
 		ID: title + "-" + ownerID, OwnerID: ownerID, Title: title, AmountMinor: amountMinor,
-		Currency: "EUR", OccurredAt: now, CategoryName: "Food", Status: domain.ExpenseConfirmed,
+		Currency: "EUR", OccurredAt: occurredAt, CategoryName: "Food", Status: domain.ExpenseConfirmed,
 		CreatedAt: now, UpdatedAt: now,
 	})
 	if err != nil {
@@ -61,12 +66,12 @@ func TestAskRejectsAnEmptyMessage(t *testing.T) {
 	}
 }
 
-func TestAskScopesContextToTheOwner(t *testing.T) {
+func TestAskDeclaresQueryToolsUpFront(t *testing.T) {
 	t.Parallel()
+	// No expense or budget data is pushed into the prompt any more; the model
+	// is only told what tools it has and must call them to see anything.
 	provider := memory.NewAIProvider("ok")
-	assistant, expenses := newAssistant(t, provider)
-	seedExpense(t, expenses, "owner-1", "Cinema", 25_00)
-	seedExpense(t, expenses, "owner-2", "SecretYacht", 900_00)
+	assistant, _ := newAssistant(t, provider)
 
 	if _, err := assistant.Ask(context.Background(), "owner-1", "what did I spend?"); err != nil {
 		t.Fatalf("Ask: %v", err)
@@ -75,50 +80,208 @@ func TestAskScopesContextToTheOwner(t *testing.T) {
 	if len(requests) != 1 {
 		t.Fatalf("provider saw %d requests, want 1", len(requests))
 	}
-	var prompt strings.Builder
-	for _, message := range requests[0].Messages {
-		if message.Text != nil {
-			prompt.WriteString(*message.Text)
-		}
+	if len(requests[0].Messages) != 2 {
+		t.Fatalf("sent %d messages, want instructions and the question only", len(requests[0].Messages))
 	}
-	if !strings.Contains(prompt.String(), "Cinema") {
-		t.Fatal("the owner's own expense is missing from the prompt")
+	names := map[string]bool{}
+	for _, tool := range requests[0].Tools {
+		names[tool.Name] = true
 	}
-	// Another user's data must never reach the model.
-	if strings.Contains(prompt.String(), "SecretYacht") {
-		t.Fatal("another owner's expense leaked into the prompt")
+	if !names["query_expenses"] || !names["query_budgets"] {
+		t.Fatalf("declared tools = %#v, want query_expenses and query_budgets", requests[0].Tools)
 	}
 }
 
-func TestAskSendsOwnerContextAsJSON(t *testing.T) {
+func TestAskDispatchesQueryExpensesAndReturnsTheFinalAnswer(t *testing.T) {
 	t.Parallel()
-	provider := memory.NewAIProvider("ok")
+	provider := memory.NewAIProvider("").WithScriptedRounds(
+		[]domain.ToolCall{{ID: "call_1", Name: "query_expenses", ArgsRaw: "{}"}},
+		"You spent 25 euro on cinema.",
+	)
 	assistant, expenses := newAssistant(t, provider)
 	seedExpense(t, expenses, "owner-1", "Cinema", 25_00)
+
+	answer, err := assistant.Ask(context.Background(), "owner-1", "what did I spend?")
+	if err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	if answer != "You spent 25 euro on cinema." {
+		t.Fatalf("answer = %q", answer)
+	}
+
+	requests := provider.Requests()
+	if len(requests) != 2 {
+		t.Fatalf("provider saw %d requests, want an initial call and one after the tool result", len(requests))
+	}
+	second := requests[1].Messages
+	// The second round must carry the assistant's tool request and its result,
+	// in addition to the original instructions and question.
+	if len(second) != 4 {
+		t.Fatalf("second round has %d messages, want instructions, question, tool call and tool result: %#v", len(second), second)
+	}
+	toolCallMessage := second[2]
+	if toolCallMessage.Role != domain.RoleAssistant || toolCallMessage.ToolCallID == nil || *toolCallMessage.ToolCallID != "call_1" {
+		t.Fatalf("tool-call message = %#v", toolCallMessage)
+	}
+	toolResultMessage := second[3]
+	if toolResultMessage.Role != domain.RoleTool || toolResultMessage.ToolCallID == nil || *toolResultMessage.ToolCallID != "call_1" {
+		t.Fatalf("tool-result message = %#v", toolResultMessage)
+	}
+	var result struct {
+		Expenses []struct {
+			Title string `json:"title"`
+		} `json:"expenses"`
+	}
+	if err := json.Unmarshal([]byte(*toolResultMessage.Text), &result); err != nil {
+		t.Fatalf("tool result is not JSON: %v\n%s", err, *toolResultMessage.Text)
+	}
+	if len(result.Expenses) != 1 || result.Expenses[0].Title != "Cinema" {
+		t.Fatalf("tool result = %#v, want the seeded expense", result)
+	}
+}
+
+func TestQueryExpensesToolScopesResultsToTheOwner(t *testing.T) {
+	t.Parallel()
+	provider := memory.NewAIProvider("").WithScriptedRounds(
+		[]domain.ToolCall{{ID: "call_1", Name: "query_expenses", ArgsRaw: "{}"}}, "ok",
+	)
+	assistant, expenses := newAssistant(t, provider)
+	seedExpense(t, expenses, "owner-1", "Cinema", 25_00)
+	seedExpense(t, expenses, "owner-2", "SecretYacht", 900_00)
 
 	if _, err := assistant.Ask(context.Background(), "owner-1", "what did I spend?"); err != nil {
 		t.Fatalf("Ask: %v", err)
 	}
-	messages := provider.Requests()[0].Messages
-	if len(messages) != 3 {
-		t.Fatalf("sent %d messages, want instructions, data and question", len(messages))
+	toolResult := *provider.Requests()[1].Messages[3].Text
+	if !strings.Contains(toolResult, "Cinema") {
+		t.Fatal("the owner's own expense is missing from the tool result")
 	}
-	data := *messages[1].Text
-	payload := strings.TrimPrefix(data, "Owner data:\n")
-	var decoded struct {
-		Expenses []struct {
-			Title       string `json:"title"`
-			AmountMinor int64  `json:"amount_minor"`
-		} `json:"expenses"`
+	if strings.Contains(toolResult, "SecretYacht") {
+		t.Fatal("another owner's expense leaked into the tool result")
 	}
-	if err := json.Unmarshal([]byte(payload), &decoded); err != nil {
-		t.Fatalf("owner context is not valid JSON: %v\n%s", err, payload)
+}
+
+func TestQueryExpensesToolFiltersByDateRange(t *testing.T) {
+	t.Parallel()
+	inRange := time.Date(2026, time.March, 15, 12, 0, 0, 0, time.UTC)
+	outOfRange := time.Date(2026, time.January, 1, 12, 0, 0, 0, time.UTC)
+	args, err := json.Marshal(map[string]string{"from": "2026-03-01T00:00:00Z", "to": "2026-03-31T00:00:00Z"})
+	if err != nil {
+		t.Fatalf("marshal args: %v", err)
 	}
-	if len(decoded.Expenses) != 1 || decoded.Expenses[0].Title != "Cinema" || decoded.Expenses[0].AmountMinor != 25_00 {
-		t.Fatalf("unexpected owner context %#v", decoded)
+	provider := memory.NewAIProvider("").WithScriptedRounds(
+		[]domain.ToolCall{{ID: "call_1", Name: "query_expenses", ArgsRaw: string(args)}}, "ok",
+	)
+	expenses := memory.NewExpenseRepository()
+	assistant, err := service.NewAssistantService(provider, expenses, memory.NewBudgetRepository())
+	if err != nil {
+		t.Fatalf("build assistant: %v", err)
 	}
-	if messages[2].Role != domain.RoleUser || *messages[2].Text != "what did I spend?" {
-		t.Fatalf("question message = %#v", messages[2])
+	seedExpenseAt(t, expenses, "owner-1", "Cinema", 25_00, inRange)
+	seedExpenseAt(t, expenses, "owner-1", "OldConcert", 40_00, outOfRange)
+
+	if _, err := assistant.Ask(context.Background(), "owner-1", "what did I spend in March?"); err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	toolResult := *provider.Requests()[1].Messages[3].Text
+	if !strings.Contains(toolResult, "Cinema") {
+		t.Fatal("the in-range expense is missing from the tool result")
+	}
+	if strings.Contains(toolResult, "OldConcert") {
+		t.Fatal("an out-of-range expense leaked past the date filter")
+	}
+}
+
+func TestQueryExpensesToolRejectsMalformedDates(t *testing.T) {
+	t.Parallel()
+	args, err := json.Marshal(map[string]string{"from": "not-a-date"})
+	if err != nil {
+		t.Fatalf("marshal args: %v", err)
+	}
+	provider := memory.NewAIProvider("").WithScriptedRounds(
+		[]domain.ToolCall{{ID: "call_1", Name: "query_expenses", ArgsRaw: string(args)}}, "ok",
+	)
+	assistant, _ := newAssistant(t, provider)
+	if _, err := assistant.Ask(context.Background(), "owner-1", "what did I spend?"); err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	toolResult := *provider.Requests()[1].Messages[3].Text
+	if !strings.Contains(toolResult, "error") {
+		t.Fatalf("malformed date did not produce a tool error: %s", toolResult)
+	}
+}
+
+func TestAskStopsAfterTheMaxToolRounds(t *testing.T) {
+	t.Parallel()
+	// A provider that always requests a tool must not loop forever.
+	provider := memory.NewAIProvider("unreachable").WithToolCalls(domain.ToolCall{ID: "call_1", Name: "query_budgets", ArgsRaw: "{}"})
+	assistant, _ := newAssistant(t, provider)
+
+	_, err := assistant.Ask(context.Background(), "owner-1", "what are my budgets?")
+	if err == nil {
+		t.Fatal("expected an error once the tool-round cap is hit")
+	}
+	// One initial round plus the bounded number of tool rounds, not unbounded.
+	if got := len(provider.Requests()); got < 2 || got > 6 {
+		t.Fatalf("provider saw %d requests; expected a small bounded number", got)
+	}
+}
+
+func TestQueryBudgetsToolReturnsTheOwnersBudgets(t *testing.T) {
+	t.Parallel()
+	provider := memory.NewAIProvider("").WithScriptedRounds(
+		[]domain.ToolCall{{ID: "call_1", Name: "query_budgets", ArgsRaw: "{}"}}, "You have one budget.",
+	)
+	budgets := memory.NewBudgetRepository()
+	assistant, err := service.NewAssistantService(provider, memory.NewExpenseRepository(), budgets)
+	if err != nil {
+		t.Fatalf("build assistant: %v", err)
+	}
+	if err := budgets.CreateBudget(context.Background(), domain.BudgetRecord{
+		ID: "budget-1", OwnerID: "owner-1", Name: "Cinema", CategoryID: "category-1",
+		AmountLimitMinor: 100_00, Currency: "EUR", ThresholdPercent: 80, Period: domain.BudgetMonthly,
+	}); err != nil {
+		t.Fatalf("seed budget: %v", err)
+	}
+
+	answer, err := assistant.Ask(context.Background(), "owner-1", "what are my budgets?")
+	if err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	if answer != "You have one budget." {
+		t.Fatalf("answer = %q", answer)
+	}
+	toolResult := *provider.Requests()[1].Messages[3].Text
+	if !strings.Contains(toolResult, "Cinema") || !strings.Contains(toolResult, "10000") {
+		t.Fatalf("tool result missing the seeded budget: %s", toolResult)
+	}
+}
+
+func TestAskStreamDispatchesToolCallsBeforeStreamingTheAnswer(t *testing.T) {
+	t.Parallel()
+	provider := memory.NewAIProvider("").WithScriptedRounds(
+		[]domain.ToolCall{{ID: "call_1", Name: "query_expenses", ArgsRaw: "{}"}},
+		"You spent 25 euro on cinema.",
+	)
+	assistant, expenses := newAssistant(t, provider)
+	seedExpense(t, expenses, "owner-1", "Cinema", 25_00)
+
+	chunks, err := assistant.AskStream(context.Background(), "owner-1", "what did I spend?")
+	if err != nil {
+		t.Fatalf("AskStream: %v", err)
+	}
+	var assembled strings.Builder
+	for chunk := range chunks {
+		if chunk.Err != nil {
+			t.Fatalf("stream error: %v", chunk.Err)
+		}
+		assembled.WriteString(chunk.ContentDelta)
+	}
+	if assembled.String() != "You spent 25 euro on cinema." {
+		t.Fatalf("assembled %q", assembled.String())
+	}
+	if len(provider.Requests()) != 2 {
+		t.Fatalf("provider saw %d requests, want the tool round and the answer round", len(provider.Requests()))
 	}
 }
 

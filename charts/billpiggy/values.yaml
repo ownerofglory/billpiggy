@@ -59,6 +59,12 @@ env:
   serverAddr: "0.0.0.0:8080"
   logLevel: info
   appEnvironment: production
+  # openAIAssistantModel and openAIBaseURL are plain config, not credentials,
+  # so they live here rather than in secrets. openAIBaseURL is empty by
+  # default, which routes to OpenAI's own endpoint; set it to point the
+  # assistant at a compatible gateway instead.
+  openAIAssistantModel: gpt-5.6-luna
+  openAIBaseURL: ""
 
 # Set existingSecret to use a Secret created outside Helm. Otherwise the chart
 # creates a release-owned Secret from these values.

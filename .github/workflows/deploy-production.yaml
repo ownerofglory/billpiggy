@@ -56,6 +56,8 @@ jobs:
           BOOTSTRAP_SUPER_ADMIN_EMAIL: ${{ secrets.BOOTSTRAP_SUPER_ADMIN_EMAIL }}
           BOOTSTRAP_SUPER_ADMIN_PASSWORD: ${{ secrets.BOOTSTRAP_SUPER_ADMIN_PASSWORD }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_ASSISTANT_MODEL: ${{ vars.OPENAI_ASSISTANT_MODEL || 'gpt-5.6-luna' }}
+          OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
           SMTP_ADDRESS: ${{ secrets.SMTP_ADDRESS }}
           SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
@@ -83,6 +85,8 @@ jobs:
             --set-string secrets.bootstrapSuperAdminEmail="$BOOTSTRAP_SUPER_ADMIN_EMAIL" \
             --set-string secrets.bootstrapSuperAdminPassword="$BOOTSTRAP_SUPER_ADMIN_PASSWORD" \
             --set-string secrets.openAIAPIKey="$OPENAI_API_KEY" \
+            --set-string env.openAIAssistantModel="$OPENAI_ASSISTANT_MODEL" \
+            --set-string env.openAIBaseURL="$OPENAI_BASE_URL" \
             --set-string secrets.smtpAddress="$SMTP_ADDRESS" \
             --set-string secrets.smtpUsername="$SMTP_USERNAME" \
             --set-string secrets.smtpPassword="$SMTP_PASSWORD" \
