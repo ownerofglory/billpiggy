@@ -1,5 +1,52 @@
 basePath: /
 definitions:
+  domain.AIUsageSummary:
+    properties:
+      byWorkload:
+        description: ByWorkload lists one entry per workload that made at least one
+          request.
+        items:
+          $ref: '#/definitions/domain.AIWorkloadUsage'
+        type: array
+      since:
+        description: Since is the inclusive start of the summarised window.
+        type: string
+    type: object
+  domain.AIWorkload:
+    enum:
+    - assistant
+    - receipt_extraction
+    - sentence_extraction
+    - transcription
+    type: string
+    x-enum-varnames:
+    - AIWorkloadAssistant
+    - AIWorkloadReceiptExtraction
+    - AIWorkloadSentenceExtraction
+    - AIWorkloadTranscription
+  domain.AIWorkloadUsage:
+    properties:
+      errorCount:
+        description: RequestCount and ErrorCount tally outcomes.
+        format: int64
+        type: integer
+      inputTokens:
+        description: InputTokens and OutputTokens sum token consumption across requests.
+        format: int64
+        type: integer
+      outputTokens:
+        description: InputTokens and OutputTokens sum token consumption across requests.
+        format: int64
+        type: integer
+      requestCount:
+        description: RequestCount and ErrorCount tally outcomes.
+        format: int64
+        type: integer
+      workload:
+        allOf:
+        - $ref: '#/definitions/domain.AIWorkload'
+        description: Workload names the feature these totals belong to.
+    type: object
   domain.AnalyticsPeriod:
     enum:
     - day
@@ -12,6 +59,32 @@ definitions:
     - AnalyticsWeek
     - AnalyticsMonth
     - AnalyticsYear
+  domain.AuditEntry:
+    properties:
+      action:
+        description: Action is the event type that produced the entry.
+        type: string
+      actorID:
+        description: ActorID is the user who caused the event, when known.
+        type: string
+      eventID:
+        description: EventID is the source event, used to make replay idempotent.
+        type: string
+      metadata:
+        additionalProperties:
+          type: string
+        description: Metadata carries additional non-indexed context.
+        type: object
+      occurredAt:
+        description: OccurredAt is when the command produced the event.
+        type: string
+      resourceID:
+        description: ResourceID is the aggregate the event belongs to.
+        type: string
+      resourceType:
+        description: ResourceType is the aggregate type the event belongs to.
+        type: string
+    type: object
   domain.BudgetPeriod:
     enum:
     - daily
@@ -479,12 +552,72 @@ definitions:
       role:
         type: string
     type: object
+  service.UsageSummary:
+    properties:
+      ai:
+        allOf:
+        - $ref: '#/definitions/domain.AIUsageSummary'
+        description: AI summarises AI provider usage and cost since Since.
+      auditEntryCount:
+        description: |-
+          AuditEntryCount counts audit entries since Since, capped at
+          auditSummaryScanLimit.
+        type: integer
+      blockedUsers:
+        type: integer
+      notificationsByStatus:
+        additionalProperties:
+          type: integer
+        description: NotificationsByStatus tallies the notification queue's current
+          state.
+        type: object
+      since:
+        description: Since is the inclusive start of the summarised window.
+        type: string
+      totalUsers:
+        description: TotalUsers, UsersByRole, and BlockedUsers describe the current
+          account population.
+        type: integer
+      usersByRole:
+        additionalProperties:
+          type: integer
+        type: object
+    type: object
 info:
   contact: {}
   description: API for personal cost tracking.
   title: BillPiggy API
   version: "1.0"
 paths:
+  /billpiggy/api/v1/admin/usage:
+    get:
+      parameters:
+      - description: RFC3339 inclusive start; defaults to the last 24 hours
+        in: query
+        name: since
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/service.UsageSummary'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get super-admin usage summary
+      tags:
+      - administration
   /billpiggy/api/v1/analytics/expenses:
     get:
       parameters:
@@ -580,6 +713,65 @@ paths:
       summary: Stream an assistant response
       tags:
       - assistant
+  /billpiggy/api/v1/audit:
+    get:
+      parameters:
+      - description: Actor user ID
+        in: query
+        name: actor_id
+        type: string
+      - description: Aggregate type, e.g. expense, budget, user
+        in: query
+        name: resource_type
+        type: string
+      - description: Aggregate ID
+        in: query
+        name: resource_id
+        type: string
+      - description: Event type, e.g. expense_added
+        in: query
+        name: action
+        type: string
+      - description: RFC3339 inclusive start
+        in: query
+        name: from
+        type: string
+      - description: RFC3339 exclusive end
+        in: query
+        name: to
+        type: string
+      - description: Page size, default 50, max 200
+        in: query
+        name: limit
+        type: integer
+      - description: Page offset
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/domain.AuditEntry'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List audit entries
+      tags:
+      - administration
   /billpiggy/api/v1/auth/invitations:
     post:
       consumes:

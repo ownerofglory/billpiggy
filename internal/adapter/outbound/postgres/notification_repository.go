@@ -88,3 +88,22 @@ func (r *NotificationRepository) MarkNotificationDeadLettered(ctx context.Contex
 	_, err := pgxtx.From(ctx, r.pool).Exec(ctx, `update notifications.deliveries set status='failed',failure_reason=$2,payload='{}'::jsonb where id=$1`, id, reason)
 	return err
 }
+
+// CountByStatus tallies deliveries by their current status.
+func (r *NotificationRepository) CountByStatus(ctx context.Context) (map[domain.NotificationStatus]int, error) {
+	rows, err := pgxtx.From(ctx, r.pool).Query(ctx, `select status, count(*) from notifications.deliveries group by status`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	counts := map[domain.NotificationStatus]int{}
+	for rows.Next() {
+		var status string
+		var count int
+		if err := rows.Scan(&status, &count); err != nil {
+			return nil, err
+		}
+		counts[domain.NotificationStatus(status)] = count
+	}
+	return counts, rows.Err()
+}

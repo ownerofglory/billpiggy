@@ -9,6 +9,7 @@ import (
 	"github.com/ownerofglory/billpiggy/internal/core/domain"
 	"github.com/ownerofglory/billpiggy/internal/core/port/outbound"
 	"github.com/ownerofglory/billpiggy/pkg/emailtmpl"
+	"github.com/ownerofglory/billpiggy/pkg/metrics"
 )
 
 // Retry policy for notification delivery: five attempts, doubling from one
@@ -42,6 +43,7 @@ type EmailSender interface {
 // NotificationService queues user notifications without coupling to an email provider.
 type NotificationService struct {
 	repository outbound.NotificationRepository
+	outcomes   *metrics.CounterVec
 	now        func() time.Time
 }
 
@@ -51,6 +53,13 @@ func NewNotificationService(repository outbound.NotificationRepository) (*Notifi
 		return nil, errors.New("notification repository is required")
 	}
 	return &NotificationService{repository: repository, now: time.Now}, nil
+}
+
+// WithMetrics records every resolved delivery against outcomes, labeled by
+// kind and outcome (sent, retried, dead_lettered).
+func (s *NotificationService) WithMetrics(outcomes *metrics.CounterVec) *NotificationService {
+	s.outcomes = outcomes
+	return s
 }
 
 // Queue creates an asynchronous delivery request.
@@ -97,6 +106,7 @@ func (s *NotificationService) deliverOne(ctx context.Context, users outbound.Ide
 	case err != nil:
 		sendErr = err
 	case to == "":
+		s.recordOutcome(delivery.Kind, "sent")
 		return s.repository.MarkNotificationSent(ctx, delivery.ID)
 	default:
 		rendered, renderErr := emailtmpl.Render(string(delivery.Kind), delivery.Payload)
@@ -107,12 +117,23 @@ func (s *NotificationService) deliverOne(ctx context.Context, users outbound.Ide
 		}
 	}
 	if sendErr == nil {
+		s.recordOutcome(delivery.Kind, "sent")
 		return s.repository.MarkNotificationSent(ctx, delivery.ID)
 	}
 	if delivery.Attempts >= notificationMaxAttempts {
+		s.recordOutcome(delivery.Kind, "dead_lettered")
 		return s.repository.MarkNotificationDeadLettered(ctx, delivery.ID, sendErr.Error())
 	}
+	s.recordOutcome(delivery.Kind, "retried")
 	return s.repository.MarkNotificationRetry(ctx, delivery.ID, s.now().Add(notificationRetryDelay(delivery.Attempts)), sendErr.Error())
+}
+
+// recordOutcome increments the optional outcomes counter. A no-op when
+// WithMetrics was never called.
+func (s *NotificationService) recordOutcome(kind domain.NotificationKind, outcome string) {
+	if s.outcomes != nil {
+		s.outcomes.WithLabelValues(string(kind), outcome).Inc()
+	}
 }
 
 // resolveRecipient returns the address to send to, or an empty string when

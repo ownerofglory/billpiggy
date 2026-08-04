@@ -26,4 +26,7 @@ type NotificationRepository interface {
 	// MarkNotificationDeadLettered permanently fails a delivery that has
 	// exhausted its retry attempts, and clears its payload.
 	MarkNotificationDeadLettered(ctx context.Context, id string, reason string) error
+	// CountByStatus tallies deliveries by their current status, for the
+	// admin usage summary.
+	CountByStatus(ctx context.Context) (map[domain.NotificationStatus]int, error)
 }

@@ -3,11 +3,13 @@ package service_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/ownerofglory/billpiggy/internal/adapter/outbound/memory"
 	"github.com/ownerofglory/billpiggy/internal/core/domain"
 	"github.com/ownerofglory/billpiggy/internal/core/service"
+	"github.com/ownerofglory/billpiggy/pkg/metrics"
 )
 
 func TestAuditedAIProviderRecordsASuccessfulComplete(t *testing.T) {
@@ -113,5 +115,54 @@ func TestAuditedAIProviderRecordsAFailedStream(t *testing.T) {
 	records := requests.Records()
 	if len(records) != 1 || records[0].Outcome != domain.AIRequestError {
 		t.Fatalf("unexpected records %#v", records)
+	}
+}
+
+func TestAuditedAIProviderRecordsMetricsWhenWired(t *testing.T) {
+	t.Parallel()
+	requests := memory.NewAIRequestRepository()
+	registry := metrics.NewRegistry()
+	calls := registry.NewCounterVec("billpiggy_ai_requests_total", "Total AI provider calls.", "workload", "outcome")
+	tokens := registry.NewCounterVec("billpiggy_ai_tokens_total", "Total AI token usage.", "workload", "direction")
+	provider, err := service.NewAuditedAIProvider(memory.NewAIProvider("You spent 25 euro."), requests, domain.AIWorkloadAssistant)
+	if err != nil {
+		t.Fatalf("build audited provider: %v", err)
+	}
+	provider = provider.WithMetrics(calls, tokens)
+
+	if _, err := provider.Complete(context.Background(), domain.CompletionRequest{
+		UserID: "owner-1", Model: "gpt-5.6-luna", Messages: []domain.Message{domain.UserMessage("hi")},
+	}); err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+
+	var buf strings.Builder
+	if err := registry.Render(&buf); err != nil {
+		t.Fatalf("render metrics: %v", err)
+	}
+	output := buf.String()
+	if !strings.Contains(output, `billpiggy_ai_requests_total{workload="assistant",outcome="success"} 1`) {
+		t.Fatalf("missing call metric: %s", output)
+	}
+	if !strings.Contains(output, `billpiggy_ai_tokens_total{workload="assistant",direction="input"}`) {
+		t.Fatalf("missing input token metric: %s", output)
+	}
+	if !strings.Contains(output, `billpiggy_ai_tokens_total{workload="assistant",direction="output"}`) {
+		t.Fatalf("missing output token metric: %s", output)
+	}
+}
+
+func TestAuditedAIProviderWithoutMetricsWiredStillRecordsAudit(t *testing.T) {
+	t.Parallel()
+	requests := memory.NewAIRequestRepository()
+	provider, err := service.NewAuditedAIProvider(memory.NewAIProvider("hi"), requests, domain.AIWorkloadAssistant)
+	if err != nil {
+		t.Fatalf("build audited provider: %v", err)
+	}
+	if _, err := provider.Complete(context.Background(), domain.CompletionRequest{UserID: "owner-1", Messages: []domain.Message{domain.UserMessage("hi")}}); err != nil {
+		t.Fatalf("Complete without metrics wired should still succeed: %v", err)
+	}
+	if len(requests.Records()) != 1 {
+		t.Fatal("expected audit recording to proceed without metrics wired")
 	}
 }

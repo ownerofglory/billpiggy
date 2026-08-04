@@ -101,6 +101,17 @@ func (r *NotificationRepository) MarkNotificationDeadLettered(_ context.Context,
 	return nil
 }
 
+// CountByStatus tallies deliveries by their current status.
+func (r *NotificationRepository) CountByStatus(_ context.Context) (map[domain.NotificationStatus]int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	counts := map[domain.NotificationStatus]int{}
+	for _, value := range r.deliveries {
+		counts[value.Status]++
+	}
+	return counts, nil
+}
+
 // Deliveries returns every queued delivery, for test assertions.
 func (r *NotificationRepository) Deliveries() []domain.NotificationDelivery {
 	r.mu.Lock()

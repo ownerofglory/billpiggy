@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 
 	"github.com/ownerofglory/billpiggy/config"
 	"github.com/ownerofglory/billpiggy/internal/adapter/inbound/http/v1/handler"
+	"github.com/ownerofglory/billpiggy/internal/adapter/outbound/cached"
 	"github.com/ownerofglory/billpiggy/internal/adapter/outbound/memory"
 	minioadapter "github.com/ownerofglory/billpiggy/internal/adapter/outbound/minio"
 	openaiadapter "github.com/ownerofglory/billpiggy/internal/adapter/outbound/openai"
@@ -26,10 +28,21 @@ import (
 	"github.com/ownerofglory/billpiggy/internal/core/service"
 	"github.com/ownerofglory/billpiggy/pkg/email"
 	"github.com/ownerofglory/billpiggy/pkg/health"
+	"github.com/ownerofglory/billpiggy/pkg/metrics"
 	"github.com/ownerofglory/billpiggy/pkg/outbox"
 	"github.com/ownerofglory/billpiggy/pkg/pgxtx"
 	"github.com/ownerofglory/billpiggy/pkg/ratelimit"
 )
+
+// latestMigrationVersion is the newest migration this build expects to find
+// applied. It backs the "migrations applied" readiness check and must be
+// bumped alongside every new migrations/NNNNNN_*.up.sql file.
+const latestMigrationVersion = "000015_notification_preferences"
+
+// cacheTTL bounds how stale a cached user, category, tag, or group list may
+// be before the next read re-fetches it. Short enough that an admin change
+// (blocking a user, renaming a category) is visible well within a session.
+const cacheTTL = 30 * time.Second
 
 // assistantRateLimit is how many assistant questions one user may ask per
 // window. It is deliberately generous for a family-sized deployment but still
@@ -105,8 +118,18 @@ func main() {
 
 	r := chi.NewRouter()
 	healthRegistry := health.NewRegistry()
+	appMetrics := metrics.NewRegistry()
+	healthRegistry.WithMetrics(appMetrics)
+	httpRequests := appMetrics.NewCounterVec("billpiggy_http_requests_total", "Total HTTP requests.", "route", "method", "status")
+	httpLatency := appMetrics.NewHistogramVec("billpiggy_http_request_duration_seconds", "HTTP request latency in seconds.", metrics.DefaultLatencyBuckets, "route", "method", "status")
+	aiCalls := appMetrics.NewCounterVec("billpiggy_ai_requests_total", "Total AI provider calls.", "workload", "outcome")
+	aiTokens := appMetrics.NewCounterVec("billpiggy_ai_tokens_total", "Total AI token usage.", "workload", "direction")
+	notificationOutcomes := appMetrics.NewCounterVec("billpiggy_notifications_total", "Total resolved notification deliveries.", "kind", "outcome")
+	r.Use(metrics.HTTPMiddleware(httpRequests, httpLatency, routePattern))
+
 	adapters := applicationStores(cfg, healthRegistry)
 	defer adapters.close()
+	healthRegistry.RegisterGauge("billpiggy_active_users", "Non-blocked user accounts.", activeUsersGauge(adapters.identity))
 
 	objectStore, err := applicationObjectStore(cfg, healthRegistry)
 	if err != nil {
@@ -152,6 +175,16 @@ func main() {
 		slog.Error("configure taxonomy", "error", err)
 		os.Exit(1)
 	}
+	auditService, err := service.NewAuditService(adapters.audit)
+	if err != nil {
+		slog.Error("configure audit", "error", err)
+		os.Exit(1)
+	}
+	adminUsageService, err := service.NewAdminUsageService(adapters.identity, adapters.aiRequests, adapters.notifications, adapters.audit)
+	if err != nil {
+		slog.Error("configure admin usage", "error", err)
+		os.Exit(1)
+	}
 	if err := startProjections(ctx, adapters, healthRegistry); err != nil {
 		slog.Error("configure projections", "error", err)
 		os.Exit(1)
@@ -162,12 +195,15 @@ func main() {
 			slog.Error("configure notifications", "error", err)
 			os.Exit(1)
 		}
+		notifications = notifications.WithMetrics(notificationOutcomes)
 		sender, err := email.NewSMTPSender(cfg.SMTPAddress, cfg.SMTPUsername, cfg.SMTPPassword, cfg.SMTPFrom)
 		if err != nil {
 			slog.Error("configure smtp", "error", err)
 			os.Exit(1)
 		}
-		go deliverNotifications(ctx, notifications, adapters.identity, sender)
+		var lastRun atomic.Int64
+		healthRegistry.Register("notification_worker", notificationWorkerHealth(&lastRun))
+		go deliverNotifications(ctx, notifications, adapters.identity, sender, &lastRun)
 	}
 	retentionService, err := service.NewRetentionService(adapters.objectRefs, objectStore)
 	if err != nil {
@@ -199,6 +235,7 @@ func main() {
 			slog.Error("configure AI request auditing", "error", err)
 			os.Exit(1)
 		}
+		auditedProvider = auditedProvider.WithMetrics(aiCalls, aiTokens)
 		assistantService, err = service.NewAssistantService(auditedProvider, adapters.expenses, adapters.budgets)
 		if err != nil {
 			slog.Error("configure assistant", "error", err)
@@ -220,11 +257,13 @@ func main() {
 			slog.Error("configure AI request auditing", "error", err)
 			os.Exit(1)
 		}
+		auditedProvider = auditedProvider.WithMetrics(aiCalls, aiTokens)
 		auditedTranscriber, err := service.NewAuditedAudioTranscriber(client, adapters.aiRequests)
 		if err != nil {
 			slog.Error("configure transcription auditing", "error", err)
 			os.Exit(1)
 		}
+		auditedTranscriber = auditedTranscriber.WithMetrics(aiCalls, aiTokens)
 		intakeService, err = service.NewExpenseIntakeService(auditedProvider, auditedTranscriber)
 		if err != nil {
 			slog.Error("configure expense intake", "error", err)
@@ -246,6 +285,8 @@ func main() {
 	handler.RegisterGroupRoutes(r, groupService, handler.NewAuthMiddleware(authService))
 	handler.RegisterAssistantRoutes(r, assistantService, authService, handler.NewAuthMiddleware(authService))
 	handler.RegisterReportRoutes(r, reportService, objectStore, handler.NewAuthMiddleware(authService))
+	handler.RegisterAuditRoutes(r, auditService, handler.NewAuthMiddleware(authService))
+	handler.RegisterAdminUsageRoutes(r, adminUsageService, handler.NewAuthMiddleware(authService))
 	r.Get("/livez", healthRegistry.Live)
 	r.Get("/readyz", healthRegistry.Ready)
 	r.Get("/startupz", healthRegistry.Startup)
@@ -313,6 +354,8 @@ func startProjections(ctx context.Context, adapters stores, healthRegistry *heal
 			return fmt.Errorf("build engine %s: %w", projection.Name(), err)
 		}
 		healthRegistry.Register("projector_"+projection.Name(), engine.Health(2*time.Minute))
+		healthRegistry.RegisterGauge(fmt.Sprintf(`billpiggy_outbox_lag{subscription=%q}`, projection.Name()), "Pending events for a subscription.", func() float64 { return float64(engine.Stats().Lag) })
+		healthRegistry.RegisterGauge(fmt.Sprintf(`billpiggy_outbox_dead_lettered{subscription=%q}`, projection.Name()), "Events abandoned after exhausting retry attempts.", func() float64 { return float64(engine.Stats().DeadLettered) })
 		go func(engine *outbox.Engine) {
 			if err := engine.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 				slog.Error("projection engine stopped", "subscription", engine.Name(), "error", err)
@@ -348,14 +391,18 @@ func applicationStores(cfg config.BillPiggyAppConfig, healthRegistry *health.Reg
 	}
 	identity := postgresadapter.NewIdentityRepository(pool)
 	healthRegistry.Register("postgres", identity.Ping)
+	healthRegistry.Register("migrations", migrationsAppliedCheck(pool))
 	outboxStore := postgresadapter.NewOutboxStore(pool)
 	return stores{
-		unit:          pgxtx.NewRunner(pool),
-		identity:      identity,
+		unit: pgxtx.NewRunner(pool),
+		// Identity, taxonomy, and group reads are cached: GetUserByID runs on
+		// every authenticated request, and categories/tags/groups change far
+		// less often than expense and budget listing reads them back.
+		identity:      cached.NewIdentityRepository(identity, cacheTTL),
 		expenses:      postgresadapter.NewExpenseRepository(pool),
 		budgets:       postgresadapter.NewBudgetRepository(pool),
-		groups:        postgresadapter.NewGroupRepository(pool),
-		taxonomy:      postgresadapter.NewTaxonomyRepository(pool),
+		groups:        cached.NewGroupRepository(postgresadapter.NewGroupRepository(pool), cacheTTL),
+		taxonomy:      cached.NewTaxonomyRepository(postgresadapter.NewTaxonomyRepository(pool), cacheTTL),
 		analytics:     postgresadapter.NewAnalyticsRepository(pool),
 		budgetUsage:   postgresadapter.NewBudgetUsageRepository(pool),
 		audit:         postgresadapter.NewAuditRepository(pool),
@@ -475,7 +522,7 @@ func cleanupRateLimitWindows(ctx context.Context, limiter *postgresadapter.RateL
 	}
 }
 
-func deliverNotifications(ctx context.Context, notifications *service.NotificationService, users outbound.IdentityRepository, sender service.EmailSender) {
+func deliverNotifications(ctx context.Context, notifications *service.NotificationService, users outbound.IdentityRepository, sender service.EmailSender, lastRun *atomic.Int64) {
 	workerID := notificationWorkerID()
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
@@ -483,12 +530,77 @@ func deliverNotifications(ctx context.Context, notifications *service.Notificati
 		if err := notifications.DeliverPending(ctx, users, sender, workerID, 25); err != nil {
 			slog.Error("deliver notifications", "error", err)
 		}
+		lastRun.Store(time.Now().UnixNano())
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
 		}
 	}
+}
+
+// notificationWorkerHealth fails readiness once the delivery loop has gone
+// far longer than its one-minute tick without completing a pass, which means
+// it has hung or its goroutine has died.
+func notificationWorkerHealth(lastRun *atomic.Int64) health.Check {
+	const staleness = 5 * time.Minute
+	return func(context.Context) error {
+		last := lastRun.Load()
+		if last == 0 {
+			return nil // hasn't ticked yet; startupz/readyz allow a grace period before this check matters
+		}
+		if age := time.Since(time.Unix(0, last)); age > staleness {
+			return fmt.Errorf("notification worker has not completed a pass in %s", age.Round(time.Second))
+		}
+		return nil
+	}
+}
+
+// activeUsersGauge returns a pull-based gauge counting non-blocked user
+// accounts. Called at scrape time, so it always reflects the current count
+// rather than a value that must be kept in sync by every mutation path.
+func activeUsersGauge(identity outbound.IdentityRepository) func() float64 {
+	return func() float64 {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		users, err := identity.ListUsers(ctx)
+		if err != nil {
+			return 0
+		}
+		count := 0
+		for _, user := range users {
+			if !user.AccessBlocked {
+				count++
+			}
+		}
+		return float64(count)
+	}
+}
+
+// migrationsAppliedCheck fails readiness until the newest migration this
+// build expects has been recorded, so traffic never reaches a binary whose
+// schema assumptions the database doesn't satisfy yet.
+func migrationsAppliedCheck(pool *pgxpool.Pool) health.Check {
+	return func(ctx context.Context) error {
+		var applied bool
+		if err := pool.QueryRow(ctx, `select exists(select 1 from public.schema_migrations where version = $1)`, latestMigrationVersion).Scan(&applied); err != nil {
+			return fmt.Errorf("check migrations applied: %w", err)
+		}
+		if !applied {
+			return fmt.Errorf("migration %s has not been applied", latestMigrationVersion)
+		}
+		return nil
+	}
+}
+
+// routePattern reads chi's matched route pattern after routing completes, so
+// HTTP metrics label by pattern (e.g. "/expenses/{expenseID}") rather than
+// the literal path, which would give every distinct ID its own label series.
+func routePattern(r *http.Request) string {
+	if routeContext := chi.RouteContext(r.Context()); routeContext != nil {
+		return routeContext.RoutePattern()
+	}
+	return ""
 }
 
 // notificationWorkerID identifies this replica's lease holder, so a stuck

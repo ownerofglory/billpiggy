@@ -189,3 +189,42 @@ func TestIdentityRepositoryNotificationPreferencesRoundTrip(t *testing.T) {
 		t.Fatalf("preferences = %#v, want the persisted overrides", reloaded.NotificationPreferences)
 	}
 }
+
+func TestNotificationRepositoryCountByStatus(t *testing.T) {
+	pool := newPool(t)
+	repository := postgresadapter.NewNotificationRepository(pool)
+	owner := seedUser(t, pool, "notify-counts@example.test")
+	ctx := context.Background()
+
+	// Left pending: never claimed.
+	pending := domain.NotificationDelivery{ID: uuid.NewString(), UserID: owner, Kind: domain.NotificationReportReady, Payload: map[string]string{}, CreatedAt: time.Now()}
+	if err := repository.QueueNotification(ctx, pending); err != nil {
+		t.Fatalf("queue pending: %v", err)
+	}
+	// Claimed and marked sent on its own, so the claim above never touches it.
+	sent := domain.NotificationDelivery{ID: uuid.NewString(), UserID: owner, Kind: domain.NotificationBudgetAlert, Payload: map[string]string{}, CreatedAt: time.Now()}
+	if err := repository.QueueNotification(ctx, sent); err != nil {
+		t.Fatalf("queue sent: %v", err)
+	}
+	claimed, err := repository.ClaimNotifications(ctx, "worker-1", time.Minute, 1)
+	if err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	if len(claimed) != 1 {
+		t.Fatalf("claimed = %#v, want exactly one (limit=1)", claimed)
+	}
+	if err := repository.MarkNotificationSent(ctx, claimed[0].ID); err != nil {
+		t.Fatalf("mark sent: %v", err)
+	}
+
+	counts, err := repository.CountByStatus(ctx)
+	if err != nil {
+		t.Fatalf("count by status: %v", err)
+	}
+	if counts[domain.NotificationPending] != 1 {
+		t.Fatalf("pending count = %d, want 1: %#v", counts[domain.NotificationPending], counts)
+	}
+	if counts[domain.NotificationSent] != 1 {
+		t.Fatalf("sent count = %d, want 1: %#v", counts[domain.NotificationSent], counts)
+	}
+}

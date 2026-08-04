@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -35,4 +36,29 @@ func (r *AIRequestRepository) RecordRequest(ctx context.Context, record domain.A
 		return fmt.Errorf("record AI request: %w", err)
 	}
 	return nil
+}
+
+// Summarize aggregates requests by workload since the given time.
+func (r *AIRequestRepository) Summarize(ctx context.Context, since time.Time) (domain.AIUsageSummary, error) {
+	rows, err := pgxtx.From(ctx, r.pool).Query(ctx, `
+		select workload, count(*), count(*) filter (where outcome = 'error'), coalesce(sum(input_tokens), 0), coalesce(sum(output_tokens), 0)
+		from ai.requests
+		where created_at >= $1
+		group by workload
+		order by workload`, since)
+	if err != nil {
+		return domain.AIUsageSummary{}, fmt.Errorf("summarize AI requests: %w", err)
+	}
+	defer rows.Close()
+	summary := domain.AIUsageSummary{Since: since}
+	for rows.Next() {
+		var workload string
+		var usage domain.AIWorkloadUsage
+		if err := rows.Scan(&workload, &usage.RequestCount, &usage.ErrorCount, &usage.InputTokens, &usage.OutputTokens); err != nil {
+			return domain.AIUsageSummary{}, err
+		}
+		usage.Workload = domain.AIWorkload(workload)
+		summary.ByWorkload = append(summary.ByWorkload, usage)
+	}
+	return summary, rows.Err()
 }

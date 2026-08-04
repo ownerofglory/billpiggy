@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -68,15 +69,21 @@ func applyMigrations(t *testing.T, pool *pgxpool.Pool) {
 	}
 	// Start from nothing, so every run exercises the migrations exactly as a
 	// fresh deployment does rather than assuming a pre-existing schema.
-	if _, err := pool.Exec(context.Background(), `drop schema if exists events, identity, expenses, budgets, analytics, reports, notifications, audit, files, ratelimit, ai cascade`); err != nil {
+	if _, err := pool.Exec(context.Background(), `drop schema if exists events, identity, expenses, budgets, analytics, reports, notifications, audit, files, ratelimit, ai cascade; drop table if exists public.schema_migrations`); err != nil {
 		t.Fatalf("reset schema: %v", err)
+	}
+	if _, err := pool.Exec(context.Background(), `create table public.schema_migrations (version text primary key, applied_at timestamptz not null default now())`); err != nil {
+		t.Fatalf("create schema_migrations: %v", err)
 	}
 	for _, file := range files {
 		applyMigration(t, pool, filepath.Base(file))
 	}
 }
 
-// applyMigration runs one migration file by name.
+// applyMigration runs one migration file by name and records it in
+// public.schema_migrations, exactly as scripts/migrate.sh does, so a test
+// asserting readiness against that bookkeeping table observes what a real
+// deployment would.
 func applyMigration(t *testing.T, pool *pgxpool.Pool, name string) {
 	t.Helper()
 	path, err := filepath.Abs(filepath.Join("..", "..", "..", "..", "migrations", name))
@@ -89,6 +96,13 @@ func applyMigration(t *testing.T, pool *pgxpool.Pool, name string) {
 	}
 	if _, err := pool.Exec(context.Background(), string(statements)); err != nil {
 		t.Fatalf("apply %s: %v", name, err)
+	}
+	// truncateAll re-runs the default-categories seed migration after every
+	// test to restore rows CASCADE removed, so this insert must tolerate
+	// already having recorded that version from the initial full run.
+	version := strings.TrimSuffix(name, ".up.sql")
+	if _, err := pool.Exec(context.Background(), `insert into public.schema_migrations(version) values ($1) on conflict (version) do nothing`, version); err != nil {
+		t.Fatalf("record migration %s: %v", version, err)
 	}
 }
 
@@ -409,5 +423,29 @@ func TestEnsureSubscriptionBackfillsHistory(t *testing.T) {
 	}
 	if !replay {
 		t.Fatal("backfilled messages must be marked as replays so handlers suppress side effects")
+	}
+}
+
+// TestSchemaMigrationsTracksEveryAppliedMigration verifies the assumption
+// cmd/billpiggy's migrationsAppliedCheck readiness probe relies on: every
+// migrations/*.up.sql file this test applied is recorded in
+// public.schema_migrations, exactly as scripts/migrate.sh records it in a
+// real deployment.
+func TestSchemaMigrationsTracksEveryAppliedMigration(t *testing.T) {
+	pool := newPool(t)
+	root, err := filepath.Abs(filepath.Join("..", "..", "..", "..", "migrations"))
+	if err != nil {
+		t.Fatalf("resolve migrations directory: %v", err)
+	}
+	files, err := filepath.Glob(filepath.Join(root, "*.up.sql"))
+	if err != nil {
+		t.Fatalf("list migrations: %v", err)
+	}
+	var recorded int
+	if err := pool.QueryRow(context.Background(), `select count(*) from public.schema_migrations`).Scan(&recorded); err != nil {
+		t.Fatalf("count schema_migrations: %v", err)
+	}
+	if recorded != len(files) {
+		t.Fatalf("recorded migrations = %d, want %d (one per migrations/*.up.sql file)", recorded, len(files))
 	}
 }
