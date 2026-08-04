@@ -48,6 +48,7 @@ type stores struct {
 	budgetUsage   outbound.BudgetUsageRepository
 	audit         outbound.AuditRepository
 	notifications outbound.NotificationRepository
+	objectRefs    outbound.ObjectReferenceRepository
 	events        outbound.EventStore
 	outboxStore   outbox.Store
 	subscriptions subscriptionRegistrar
@@ -93,6 +94,7 @@ func main() {
 		slog.Error("configure authentication", "error", err)
 		os.Exit(1)
 	}
+	authService = authService.WithObjectReferences(adapters.objectRefs)
 	if err := authService.EnsureBootstrapSuperAdmin(ctx); err != nil {
 		slog.Error("bootstrap authentication", "error", err)
 		os.Exit(1)
@@ -102,6 +104,7 @@ func main() {
 		slog.Error("configure expenses", "error", err)
 		os.Exit(1)
 	}
+	expenseService = expenseService.WithObjectReferences(adapters.objectRefs)
 	groupService, err := service.NewGroupService(adapters.groups)
 	if err != nil {
 		slog.Error("configure groups", "error", err)
@@ -139,6 +142,12 @@ func main() {
 		}
 		go deliverNotifications(ctx, notifications, adapters.identity, sender)
 	}
+	retentionService, err := service.NewRetentionService(adapters.objectRefs, objectStore)
+	if err != nil {
+		slog.Error("configure retention", "error", err)
+		os.Exit(1)
+	}
+	go sweepOrphanedObjects(ctx, retentionService)
 	var assistantService *service.AssistantService
 	if cfg.OpenAIAPIKey != "" {
 		provider, err := openaiadapter.NewClient(cfg.OpenAIAPIKey,
@@ -282,6 +291,7 @@ func applicationStores(cfg config.BillPiggyAppConfig, healthRegistry *health.Reg
 		budgetUsage:   postgresadapter.NewBudgetUsageRepository(pool),
 		audit:         postgresadapter.NewAuditRepository(pool),
 		notifications: postgresadapter.NewNotificationRepository(pool),
+		objectRefs:    postgresadapter.NewObjectReferenceRepository(pool),
 		events:        postgresadapter.NewEventStore(pool),
 		outboxStore:   outboxStore,
 		subscriptions: outboxStore,
@@ -301,8 +311,9 @@ func memoryStores() stores {
 	budgetUsage := memory.NewBudgetUsageRepository(budgets)
 	audit := memory.NewAuditRepository()
 	notifications := memory.NewNotificationRepository()
+	objectRefs := memory.NewObjectReferenceRepository()
 	events := memory.NewEventStore()
-	unit := memory.NewUnitOfWork(expenses, budgets, analytics, budgetUsage, audit, notifications, taxonomy, events)
+	unit := memory.NewUnitOfWork(expenses, budgets, analytics, budgetUsage, audit, notifications, objectRefs, taxonomy, events)
 	events.WithUnitOfWork(unit)
 	return stores{
 		unit:          unit,
@@ -315,10 +326,30 @@ func memoryStores() stores {
 		budgetUsage:   budgetUsage,
 		audit:         audit,
 		notifications: notifications,
+		objectRefs:    objectRefs,
 		events:        events,
 		outboxStore:   events,
 		subscriptions: events,
 		close:         func() {},
+	}
+}
+
+// sweepOrphanedObjects periodically reclaims objects that AttachReceipt,
+// UpdateProfileImage or a resource deletion has orphaned.
+func sweepOrphanedObjects(ctx context.Context, retention *service.RetentionService) {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for {
+		if swept, err := retention.SweepOrphans(ctx, 50); err != nil {
+			slog.Error("sweep orphaned objects", "error", err)
+		} else if swept > 0 {
+			slog.Info("swept orphaned objects", "count", swept)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
 	}
 }
 

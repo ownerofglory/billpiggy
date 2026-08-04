@@ -23,13 +23,25 @@ variable "postgres_password" {
 }
 
 variable "minio_root_user" {
-  description = "MinIO administrative access key."
+  description = "MinIO administrative access key. Used only to bootstrap the cluster; the application uses minio_app_user instead."
   type        = string
   sensitive   = true
 }
 
 variable "minio_root_password" {
   description = "MinIO administrative secret key."
+  type        = string
+  sensitive   = true
+}
+
+variable "minio_app_user" {
+  description = "Access key for the scoped application user, provisioned with access to only the billpiggy bucket. This is what MINIO_ACCESS_KEY should be set to."
+  type        = string
+  sensitive   = true
+}
+
+variable "minio_app_password" {
+  description = "Secret key for the scoped application user. This is what MINIO_SECRET_KEY should be set to."
   type        = string
   sensitive   = true
 }

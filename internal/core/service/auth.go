@@ -40,10 +40,15 @@ type AuthConfig struct {
 	BootstrapSuperAdminPassword string
 }
 
+// ObjectResourceProfileImage identifies profile images to the object
+// reference tracker.
+const ObjectResourceProfileImage = "user_profile_image"
+
 // AuthService implements password login, refresh rotation, invitation acceptance, and RBAC.
 type AuthService struct {
 	repository outbound.IdentityRepository
 	config     AuthConfig
+	objectRefs outbound.ObjectReferenceRepository
 	now        func() time.Time
 }
 
@@ -69,6 +74,14 @@ func NewAuthService(repository outbound.IdentityRepository, config AuthConfig) (
 	}
 
 	return &AuthService{repository: repository, config: config, now: time.Now}, nil
+}
+
+// WithObjectReferences enables profile-image retention tracking. Without it,
+// UpdateProfileImage and DeleteUser skip tracking and replaced or orphaned
+// profile images are never reclaimed.
+func (s *AuthService) WithObjectReferences(references outbound.ObjectReferenceRepository) *AuthService {
+	s.objectRefs = references
+	return s
 }
 
 // EnsureBootstrapSuperAdmin creates the first protected administrator when the database is empty.
@@ -281,7 +294,9 @@ func (s *AuthService) GetProfile(ctx context.Context, userID string) (domain.App
 	return user, nil
 }
 
-// UpdateProfileImage records the object key for the current user's profile image.
+// UpdateProfileImage records the object key for the current user's profile
+// image. A previously stored image is orphaned so the retention sweeper
+// reclaims it.
 func (s *AuthService) UpdateProfileImage(ctx context.Context, userID, objectKey string) (domain.AppUser, error) {
 	user, err := s.repository.GetUserByID(ctx, userID)
 	if err != nil {
@@ -290,9 +305,22 @@ func (s *AuthService) UpdateProfileImage(ctx context.Context, userID, objectKey 
 	if strings.TrimSpace(objectKey) == "" {
 		return domain.AppUser{}, ErrConflict
 	}
+	previousKey := user.ProfileImageObjectKey
 	user.ProfileImageObjectKey, user.UpdatedAt = objectKey, s.now()
 	if err := s.repository.UpdateUser(ctx, user); err != nil {
 		return domain.AppUser{}, err
+	}
+	if s.objectRefs != nil {
+		if err := s.objectRefs.TrackObject(ctx, domain.ObjectReference{
+			ObjectKey: objectKey, OwnerID: userID, ResourceType: ObjectResourceProfileImage, ResourceID: userID,
+		}); err != nil {
+			return domain.AppUser{}, fmt.Errorf("track profile image object: %w", err)
+		}
+		if previousKey != "" && previousKey != objectKey {
+			if err := s.objectRefs.OrphanObjectsFor(ctx, ObjectResourceProfileImage, userID, objectKey); err != nil {
+				return domain.AppUser{}, fmt.Errorf("orphan previous profile image: %w", err)
+			}
+		}
 	}
 	return user, nil
 }
@@ -331,7 +359,15 @@ func (s *AuthService) DeleteUser(ctx context.Context, actor domain.AppUser, user
 	if user.Role == domain.RoleSuperAdmin {
 		return ErrForbidden
 	}
-	return s.repository.DeleteUser(ctx, userID)
+	if err := s.repository.DeleteUser(ctx, userID); err != nil {
+		return err
+	}
+	if s.objectRefs != nil {
+		if err := s.objectRefs.OrphanObjectsFor(ctx, ObjectResourceProfileImage, userID, ""); err != nil {
+			return fmt.Errorf("orphan profile image for deleted user: %w", err)
+		}
+	}
+	return nil
 }
 
 func randomToken() (string, error) {

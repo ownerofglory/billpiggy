@@ -92,16 +92,36 @@ private to their creator and members, except that super-admins can inspect all g
 
 - PostgreSQL stores events, projections, invitations, refresh-token hashes, audit
   records, and report metadata.
-- MinIO is the initial S3-compatible object store for profile images, receipt
-  originals, normalized receipt images, and generated reports. It is free, compact,
-  and can later be replaced with any S3-compatible provider.
+- MinIO is the S3-compatible object store for profile images, receipt images, and
+  generated reports. It is free, compact, and can later be replaced with any
+  S3-compatible provider. Production Terraform provisions a scoped application user
+  through the chart's own provisioning job, limited by policy to the `billpiggy`
+  bucket; the root credentials it also creates are operator-only and the application
+  never sees them.
 - Frequently read, low-churn data (role permissions, default categories, and user
-  settings) is held in a bounded in-memory cache with explicit invalidation on its
-  events. Redis remains optional; it is not justified for the initial user count.
+  settings) is a candidate for a bounded in-memory cache with explicit invalidation on
+  its events, but that cache does not exist yet. Redis remains optional regardless; it
+  is not justified for the initial user count.
 
-Receipts are virus-scanned before extraction. The original is retained according to a
-user-configurable retention policy; a normalized JPEG/PNG is resized and grayscale
-converted before AI extraction to reduce storage and image-token cost.
+Uploads are sniffed by content rather than trusted by declared `Content-Type`, and
+images are re-encoded rather than stored as received: re-encoding is itself the
+metadata strip, since the output is rebuilt from decoded pixels and cannot carry EXIF
+GPS data or an appended payload through. Receipts are additionally downscaled and
+converted to grayscale before storage, both to save space and because a grayscale,
+bounded-size image is what the OCR extraction workload should be spending tokens on;
+profile images are downscaled only. PDFs bypass normalization and are stored as
+received. Malware scanning is not implemented — a receipt upload from a compromised
+account is not currently inspected before storage.
+
+Replacing or deleting a resource does not delete its object synchronously: object
+storage cannot join the database transaction that stopped referencing it. Instead the
+transaction marks the object orphaned in `files.object_references`, and a background
+sweeper deletes it from MinIO and forgets the reference afterward. A crash between the
+two leaves an orphaned row for the next sweep to retry, which is a deliberate,
+low-cost trade for a single-node deployment rather than the coordination a distributed
+two-phase delete would need. There is no retention policy beyond "delete when
+replaced or when the owning resource is deleted" — no user-configurable retention
+window exists yet.
 
 ## AI workloads
 

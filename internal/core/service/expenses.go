@@ -15,11 +15,16 @@ import (
 
 var ErrInvalidExpense = errors.New("invalid expense")
 
+// ObjectResourceExpenseReceipt identifies expense receipts to the object
+// reference tracker.
+const ObjectResourceExpenseReceipt = "expense_receipt"
+
 // ExpenseService coordinates event creation and the expense projection.
 type ExpenseService struct {
 	repository outbound.ExpenseRepository
 	events     outbound.EventStore
 	unit       outbound.UnitOfWork
+	objectRefs outbound.ObjectReferenceRepository
 	now        func() time.Time
 }
 
@@ -29,6 +34,14 @@ func NewExpenseService(repository outbound.ExpenseRepository, events outbound.Ev
 		return nil, errors.New("expense repository, event store, and unit of work are required")
 	}
 	return &ExpenseService{repository: repository, events: events, unit: unit, now: time.Now}, nil
+}
+
+// WithObjectReferences enables receipt retention tracking. Without it,
+// AttachReceipt and DeleteExpense skip tracking and replaced or deleted
+// receipts are never reclaimed.
+func (s *ExpenseService) WithObjectReferences(references outbound.ObjectReferenceRepository) *ExpenseService {
+	s.objectRefs = references
+	return s
 }
 
 // CreateExpense creates an expense for the authenticated owner.
@@ -72,7 +85,10 @@ func (s *ExpenseService) UpdateExpense(ctx context.Context, ownerID, expenseID s
 	expense.Title, expense.AmountMinor, expense.Currency = strings.TrimSpace(command.Title), command.AmountMinor, strings.ToUpper(strings.TrimSpace(command.Currency))
 	expense.OccurredAt, expense.CategoryID, expense.CategoryName = command.OccurredAt.UTC(), command.CategoryID, strings.TrimSpace(command.CategoryName)
 	expense.TagIDs, expense.Status, expense.SharedGroupID, expense.Items = append([]string(nil), command.TagIDs...), command.Status, command.SharedGroupID, append([]domain.ExpenseItem(nil), command.Items...)
-	expense.Latitude, expense.Longitude, expense.Address, expense.ReceiptObjectKey = command.Latitude, command.Longitude, strings.TrimSpace(command.Address), command.ReceiptObjectKey
+	expense.Latitude, expense.Longitude, expense.Address = command.Latitude, command.Longitude, strings.TrimSpace(command.Address)
+	// ReceiptObjectKey is deliberately left untouched here: the HTTP DTO never
+	// carries it, so overwriting it from the command wiped every receipt on
+	// the next unrelated field edit. It is set only through AttachReceipt.
 	expense.UpdatedAt = s.now()
 	if expense.Status == "" {
 		expense.Status = domain.ExpenseConfirmed
@@ -107,6 +123,13 @@ func (s *ExpenseService) DeleteExpense(ctx context.Context, ownerID, expenseID s
 		if err := s.repository.DeleteExpense(ctx, ownerID, expenseID); err != nil {
 			return fmt.Errorf("delete expense projection: %w", err)
 		}
+		if s.objectRefs != nil {
+			// Orphaning is a no-op when the expense never had a receipt; no
+			// need to branch on whether one was ever attached.
+			if err := s.objectRefs.OrphanObjectsFor(ctx, ObjectResourceExpenseReceipt, expenseID, ""); err != nil {
+				return fmt.Errorf("orphan receipt for deleted expense: %w", err)
+			}
+		}
 		return nil
 	})
 }
@@ -131,7 +154,9 @@ func (s *ExpenseService) GetExpense(ctx context.Context, ownerID, expenseID stri
 	return expense, nil
 }
 
-// AttachReceipt records an uploaded receipt object for an owner-scoped expense.
+// AttachReceipt records an uploaded receipt object for an owner-scoped
+// expense. A previously attached receipt is orphaned so the retention sweeper
+// reclaims it rather than leaving it in the store forever.
 func (s *ExpenseService) AttachReceipt(ctx context.Context, ownerID, expenseID, objectKey string) (domain.ExpenseRecord, error) {
 	expense, err := s.repository.GetExpense(ctx, ownerID, expenseID)
 	if err != nil {
@@ -140,12 +165,28 @@ func (s *ExpenseService) AttachReceipt(ctx context.Context, ownerID, expenseID, 
 	if strings.TrimSpace(objectKey) == "" {
 		return domain.ExpenseRecord{}, ErrInvalidExpense
 	}
+	previousKey := expense.ReceiptObjectKey
 	expense.ReceiptObjectKey, expense.UpdatedAt = objectKey, s.now()
 	if err := s.unit.Within(ctx, func(ctx context.Context) error {
 		if err := s.events.Append(ctx, newExpenseEvent("expense_updated", expense.ID, ownerID, domain.ExpenseUpdated{Expense: expense}, expense.UpdatedAt)); err != nil {
 			return err
 		}
-		return s.repository.UpdateExpense(ctx, expense)
+		if err := s.repository.UpdateExpense(ctx, expense); err != nil {
+			return err
+		}
+		if s.objectRefs != nil {
+			if err := s.objectRefs.TrackObject(ctx, domain.ObjectReference{
+				ObjectKey: objectKey, OwnerID: ownerID, ResourceType: ObjectResourceExpenseReceipt, ResourceID: expenseID,
+			}); err != nil {
+				return fmt.Errorf("track receipt object: %w", err)
+			}
+			if previousKey != "" && previousKey != objectKey {
+				if err := s.objectRefs.OrphanObjectsFor(ctx, ObjectResourceExpenseReceipt, expenseID, objectKey); err != nil {
+					return fmt.Errorf("orphan previous receipt: %w", err)
+				}
+			}
+		}
+		return nil
 	}); err != nil {
 		return domain.ExpenseRecord{}, err
 	}

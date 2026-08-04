@@ -30,6 +30,14 @@ securityContext:
       - ALL
   readOnlyRootFilesystem: true
 
+# Go's multipart parser can spill upload parts to a temp file once they
+# exceed its in-memory threshold, which needs a writable /tmp even though the
+# rest of the filesystem stays read-only. tmpSizeLimit bounds the emptyDir so
+# a burst of large uploads can't exhaust node memory (emptyDir defaults to
+# node storage, but a memory-backed medium would count against pod memory).
+tmp:
+  sizeLimit: 256Mi
+
 service:
   type: ClusterIP
   port: 8080

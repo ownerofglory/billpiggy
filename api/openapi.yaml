@@ -861,6 +861,25 @@ paths:
       tags:
       - expenses
   /billpiggy/api/v1/expenses/{expenseID}/receipt:
+    get:
+      parameters:
+      - description: Expense ID
+        in: path
+        name: expenseID
+        required: true
+        type: string
+      responses:
+        "302":
+          description: Found
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Download expense receipt
+      tags:
+      - expenses
     post:
       consumes:
       - multipart/form-data
@@ -1104,6 +1123,19 @@ paths:
       tags:
       - users
   /billpiggy/api/v1/users/me/profile-image:
+    get:
+      responses:
+        "302":
+          description: Found
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Download profile image
+      tags:
+      - users
     post:
       consumes:
       - multipart/form-data
