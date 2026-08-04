@@ -7,6 +7,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/ownerofglory/billpiggy/internal/core/domain"
+	"github.com/ownerofglory/billpiggy/internal/core/port/inbound"
 	"github.com/ownerofglory/billpiggy/internal/core/service"
 	sharedauth "github.com/ownerofglory/billpiggy/pkg/auth"
 )
@@ -27,7 +28,7 @@ const maxIntakeUploadBytes = 10 << 20
 // prefix RegisterExpenseRoutes separately mounts a sub-router at, and two
 // competing Mounts on an overlapping prefix silently 404 real requests even
 // though chi.Walk shows every route registered.
-func RegisterExpenseIntakeRoutes(router chi.Router, intake *service.ExpenseIntakeService, auth *service.AuthService, middleware *sharedauth.Middleware) {
+func RegisterExpenseIntakeRoutes(router chi.Router, intake inbound.ExpenseIntakeService, auth inbound.AuthService, middleware *sharedauth.Middleware) {
 	h := intakeHandler{service: intake, auth: auth}
 	router.Group(func(routes chi.Router) {
 		routes.Use(middleware.RequireAuthentication)
@@ -38,8 +39,8 @@ func RegisterExpenseIntakeRoutes(router chi.Router, intake *service.ExpenseIntak
 }
 
 type intakeHandler struct {
-	service *service.ExpenseIntakeService
-	auth    *service.AuthService
+	service inbound.ExpenseIntakeService
+	auth    inbound.AuthService
 }
 
 type intelligentRequest struct {

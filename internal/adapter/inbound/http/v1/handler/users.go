@@ -7,12 +7,13 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/ownerofglory/billpiggy/internal/core/domain"
+	"github.com/ownerofglory/billpiggy/internal/core/port/inbound"
 	"github.com/ownerofglory/billpiggy/internal/core/service"
 	sharedauth "github.com/ownerofglory/billpiggy/pkg/auth"
 )
 
 // RegisterUserRoutes mounts profile and administrator user-management endpoints.
-func RegisterUserRoutes(router chi.Router, auth *service.AuthService, middleware *sharedauth.Middleware) {
+func RegisterUserRoutes(router chi.Router, auth inbound.AuthService, middleware *sharedauth.Middleware) {
 	h := userHandler{service: auth}
 	router.Route(basePathV1+"/users", func(routes chi.Router) {
 		routes.Use(middleware.RequireAuthentication)
@@ -25,7 +26,7 @@ func RegisterUserRoutes(router chi.Router, auth *service.AuthService, middleware
 	})
 }
 
-type userHandler struct{ service *service.AuthService }
+type userHandler struct{ service inbound.AuthService }
 type profileRequest struct {
 	DisplayName               string `json:"display_name"`
 	Email                     string `json:"email"`

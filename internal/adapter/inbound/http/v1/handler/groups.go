@@ -7,12 +7,13 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/ownerofglory/billpiggy/internal/core/domain"
+	"github.com/ownerofglory/billpiggy/internal/core/port/inbound"
 	"github.com/ownerofglory/billpiggy/internal/core/service"
 	sharedauth "github.com/ownerofglory/billpiggy/pkg/auth"
 )
 
 // RegisterGroupRoutes mounts endpoints for private administrator-managed groups.
-func RegisterGroupRoutes(router chi.Router, groups *service.GroupService, middleware *sharedauth.Middleware) {
+func RegisterGroupRoutes(router chi.Router, groups inbound.GroupService, middleware *sharedauth.Middleware) {
 	h := groupHandler{service: groups}
 	router.Route(basePathV1+"/groups", func(routes chi.Router) {
 		routes.Use(middleware.RequireAuthentication)
@@ -21,7 +22,7 @@ func RegisterGroupRoutes(router chi.Router, groups *service.GroupService, middle
 	})
 }
 
-type groupHandler struct{ service *service.GroupService }
+type groupHandler struct{ service inbound.GroupService }
 
 type createGroupRequest struct {
 	Name      string   `json:"name"`

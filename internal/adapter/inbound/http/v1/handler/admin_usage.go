@@ -7,12 +7,12 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/ownerofglory/billpiggy/internal/core/domain"
-	"github.com/ownerofglory/billpiggy/internal/core/service"
+	"github.com/ownerofglory/billpiggy/internal/core/port/inbound"
 	sharedauth "github.com/ownerofglory/billpiggy/pkg/auth"
 )
 
 // RegisterAdminUsageRoutes mounts the super-admin usage summary endpoint.
-func RegisterAdminUsageRoutes(router chi.Router, usage *service.AdminUsageService, middleware *sharedauth.Middleware) {
+func RegisterAdminUsageRoutes(router chi.Router, usage inbound.AdminUsageService, middleware *sharedauth.Middleware) {
 	h := adminUsageHandler{service: usage}
 	router.Route(basePathV1+"/admin/usage", func(routes chi.Router) {
 		routes.Use(middleware.RequireAuthentication, permission(middleware, domain.PermissionAuditRead))
@@ -20,7 +20,7 @@ func RegisterAdminUsageRoutes(router chi.Router, usage *service.AdminUsageServic
 	})
 }
 
-type adminUsageHandler struct{ service *service.AdminUsageService }
+type adminUsageHandler struct{ service inbound.AdminUsageService }
 
 // summarize returns account, AI usage, and notification activity since a
 // requested time.

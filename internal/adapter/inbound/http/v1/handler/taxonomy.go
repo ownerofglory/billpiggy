@@ -5,12 +5,12 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/ownerofglory/billpiggy/internal/core/domain"
-	"github.com/ownerofglory/billpiggy/internal/core/service"
+	"github.com/ownerofglory/billpiggy/internal/core/port/inbound"
 	sharedauth "github.com/ownerofglory/billpiggy/pkg/auth"
 )
 
 // RegisterTaxonomyRoutes mounts personal category and tag endpoints.
-func RegisterTaxonomyRoutes(router chi.Router, taxonomy *service.TaxonomyService, middleware *sharedauth.Middleware) {
+func RegisterTaxonomyRoutes(router chi.Router, taxonomy inbound.TaxonomyService, middleware *sharedauth.Middleware) {
 	h := taxonomyHandler{service: taxonomy}
 	router.Route(basePathV1+"/taxonomy", func(routes chi.Router) {
 		routes.Use(middleware.RequireAuthentication)
@@ -21,7 +21,7 @@ func RegisterTaxonomyRoutes(router chi.Router, taxonomy *service.TaxonomyService
 	})
 }
 
-type taxonomyHandler struct{ service *service.TaxonomyService }
+type taxonomyHandler struct{ service inbound.TaxonomyService }
 type taxonomyRequest struct {
 	Name  string `json:"name"`
 	Color string `json:"color"`

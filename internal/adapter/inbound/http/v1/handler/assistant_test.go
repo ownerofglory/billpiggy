@@ -12,13 +12,14 @@ import (
 
 	"github.com/ownerofglory/billpiggy/internal/adapter/inbound/http/v1/handler"
 	"github.com/ownerofglory/billpiggy/internal/adapter/outbound/memory"
+	"github.com/ownerofglory/billpiggy/internal/core/port/inbound"
 	"github.com/ownerofglory/billpiggy/internal/core/service"
 )
 
 // assistantRouter wires the assistant endpoint behind real authentication and
 // returns the router, a bearer token for the bootstrap admin, and the auth
 // service so a test can change that admin's profile (such as the AI opt-out).
-func assistantRouter(t *testing.T, assistant *service.AssistantService) (chi.Router, string, *service.AuthService) {
+func assistantRouter(t *testing.T, assistant inbound.AssistantService) (chi.Router, string, *service.AuthService) {
 	t.Helper()
 	repository := memory.NewIdentityRepository()
 	authService, err := service.NewAuthService(repository, service.AuthConfig{

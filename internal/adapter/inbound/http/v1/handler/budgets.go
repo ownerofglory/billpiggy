@@ -8,12 +8,13 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/ownerofglory/billpiggy/internal/core/domain"
+	"github.com/ownerofglory/billpiggy/internal/core/port/inbound"
 	"github.com/ownerofglory/billpiggy/internal/core/service"
 	sharedauth "github.com/ownerofglory/billpiggy/pkg/auth"
 )
 
 // RegisterBudgetRoutes mounts authenticated budget CRUD endpoints.
-func RegisterBudgetRoutes(router chi.Router, budgets *service.BudgetService, middleware *sharedauth.Middleware) {
+func RegisterBudgetRoutes(router chi.Router, budgets inbound.BudgetService, middleware *sharedauth.Middleware) {
 	h := budgetHandler{service: budgets}
 	router.Route(basePathV1+"/budgets", func(routes chi.Router) {
 		routes.Use(middleware.RequireAuthentication)
@@ -25,7 +26,7 @@ func RegisterBudgetRoutes(router chi.Router, budgets *service.BudgetService, mid
 	})
 }
 
-type budgetHandler struct{ service *service.BudgetService }
+type budgetHandler struct{ service inbound.BudgetService }
 
 type budgetRequest struct {
 	Name             string              `json:"name"`

@@ -52,3 +52,30 @@ func TestHTTPMiddlewareDefaultsStatusToOKWhenHandlerNeverWritesHeader(t *testing
 		t.Fatalf("expected default status 200: %s", buf.String())
 	}
 }
+
+func TestHTTPMiddlewarePreservesFlusherForStreamingHandlers(t *testing.T) {
+	t.Parallel()
+	registry := metrics.NewRegistry()
+	requests := registry.NewCounterVec("billpiggy_http_requests_total", "Total HTTP requests.", "route", "method", "status")
+	latency := registry.NewHistogramVec("billpiggy_http_request_duration_seconds", "Request latency.", metrics.DefaultLatencyBuckets, "route", "method", "status")
+
+	handler := metrics.HTTPMiddleware(requests, latency, func(*http.Request) string { return "/assistant/chat" })(
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			flusher, ok := w.(http.Flusher)
+			if !ok {
+				t.Error("response writer wrapped by HTTPMiddleware must still implement http.Flusher")
+				return
+			}
+			_, _ = w.Write([]byte("event: message.delta\ndata: hi\n\n"))
+			flusher.Flush()
+		}),
+	)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/assistant/chat", nil))
+	if response.Body.String() == "" {
+		t.Fatal("expected the streamed body to have been written")
+	}
+	if !response.Flushed {
+		t.Fatal("expected Flush to have reached the underlying recorder")
+	}
+}

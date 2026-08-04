@@ -6,21 +6,22 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/ownerofglory/billpiggy/internal/core/port/inbound"
 	"github.com/ownerofglory/billpiggy/internal/core/service"
 	sharedauth "github.com/ownerofglory/billpiggy/pkg/auth"
 	"github.com/ownerofglory/billpiggy/pkg/sse"
 )
 
 // RegisterAssistantRoutes mounts the authenticated streaming assistant endpoint.
-func RegisterAssistantRoutes(router chi.Router, assistant *service.AssistantService, auth *service.AuthService, middleware *sharedauth.Middleware) {
+func RegisterAssistantRoutes(router chi.Router, assistant inbound.AssistantService, auth inbound.AuthService, middleware *sharedauth.Middleware) {
 	router.Route(basePathV1+"/assistant", func(routes chi.Router) {
 		routes.With(middleware.RequireAuthentication).Post("/chat", assistantHandler{service: assistant, auth: auth}.chat)
 	})
 }
 
 type assistantHandler struct {
-	service *service.AssistantService
-	auth    *service.AuthService
+	service inbound.AssistantService
+	auth    inbound.AuthService
 }
 type assistantRequest struct {
 	Message string `json:"message"`

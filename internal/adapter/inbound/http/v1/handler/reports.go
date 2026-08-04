@@ -5,13 +5,13 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/ownerofglory/billpiggy/internal/core/port/inbound"
 	"github.com/ownerofglory/billpiggy/internal/core/port/outbound"
-	"github.com/ownerofglory/billpiggy/internal/core/service"
 	sharedauth "github.com/ownerofglory/billpiggy/pkg/auth"
 )
 
 // RegisterReportRoutes mounts authenticated, owner-scoped report endpoints.
-func RegisterReportRoutes(router chi.Router, reports *service.ReportService, objects outbound.ObjectStore, middleware *sharedauth.Middleware) {
+func RegisterReportRoutes(router chi.Router, reports inbound.ReportService, objects outbound.ObjectStore, middleware *sharedauth.Middleware) {
 	h := reportHandler{service: reports, objects: objects}
 	router.Route(basePathV1+"/reports", func(routes chi.Router) {
 		routes.Use(middleware.RequireAuthentication)
@@ -21,7 +21,7 @@ func RegisterReportRoutes(router chi.Router, reports *service.ReportService, obj
 }
 
 type reportHandler struct {
-	service *service.ReportService
+	service inbound.ReportService
 	objects outbound.ObjectStore
 }
 

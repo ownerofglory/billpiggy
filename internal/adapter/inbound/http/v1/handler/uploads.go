@@ -11,8 +11,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/ownerofglory/billpiggy/internal/core/port/inbound"
 	"github.com/ownerofglory/billpiggy/internal/core/port/outbound"
-	"github.com/ownerofglory/billpiggy/internal/core/service"
 	sharedauth "github.com/ownerofglory/billpiggy/pkg/auth"
 	"github.com/ownerofglory/billpiggy/pkg/imageproc"
 )
@@ -32,7 +32,7 @@ const presignTTL = 5 * time.Minute
 // prefix. Route/Mount there silently 404s the shadowed side at request time
 // even though both patterns show up in chi.Walk. Group shares the parent's
 // tree instead of creating a competing mount, so there is nothing to conflict.
-func RegisterUploadRoutes(router chi.Router, auth *service.AuthService, expenses *service.ExpenseService, objects outbound.ObjectStore, middleware *sharedauth.Middleware) {
+func RegisterUploadRoutes(router chi.Router, auth inbound.AuthService, expenses inbound.ExpenseService, objects outbound.ObjectStore, middleware *sharedauth.Middleware) {
 	h := uploadHandler{auth: auth, expenses: expenses, objects: objects}
 	router.Group(func(routes chi.Router) {
 		routes.Use(middleware.RequireAuthentication)
@@ -44,8 +44,8 @@ func RegisterUploadRoutes(router chi.Router, auth *service.AuthService, expenses
 }
 
 type uploadHandler struct {
-	auth     *service.AuthService
-	expenses *service.ExpenseService
+	auth     inbound.AuthService
+	expenses inbound.ExpenseService
 	objects  outbound.ObjectStore
 }
 

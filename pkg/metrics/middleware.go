@@ -44,3 +44,14 @@ func (r *statusRecorder) WriteHeader(status int) {
 	r.status = status
 	r.ResponseWriter.WriteHeader(status)
 }
+
+// Flush forwards to the underlying ResponseWriter's http.Flusher when it has
+// one, so wrapping a response for metrics never silently breaks streaming
+// (SSE, chunked transfer) that depends on a flush per write — a handler that
+// type-asserts w.(http.Flusher) would otherwise always fail that assertion
+// against this wrapper and never flush at all.
+func (r *statusRecorder) Flush() {
+	if flusher, ok := r.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}

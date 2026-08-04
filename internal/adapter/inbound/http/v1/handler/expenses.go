@@ -8,13 +8,14 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/ownerofglory/billpiggy/internal/core/domain"
+	"github.com/ownerofglory/billpiggy/internal/core/port/inbound"
 	"github.com/ownerofglory/billpiggy/internal/core/port/outbound"
 	"github.com/ownerofglory/billpiggy/internal/core/service"
 	sharedauth "github.com/ownerofglory/billpiggy/pkg/auth"
 )
 
 // RegisterExpenseRoutes mounts authenticated expense CRUD endpoints.
-func RegisterExpenseRoutes(router chi.Router, expenses *service.ExpenseService, middleware *sharedauth.Middleware) {
+func RegisterExpenseRoutes(router chi.Router, expenses inbound.ExpenseService, middleware *sharedauth.Middleware) {
 	h := expenseHandler{service: expenses}
 	router.Route(basePathV1+"/expenses", func(routes chi.Router) {
 		routes.Use(middleware.RequireAuthentication)
@@ -29,7 +30,7 @@ func permission(m *sharedauth.Middleware, p domain.Permission) func(http.Handler
 	return func(next http.Handler) http.Handler { return m.RequirePermission(string(p), next) }
 }
 
-type expenseHandler struct{ service *service.ExpenseService }
+type expenseHandler struct{ service inbound.ExpenseService }
 type expenseRequest struct {
 	Title         string               `json:"title"`
 	AmountMinor   int64                `json:"amount_minor"`

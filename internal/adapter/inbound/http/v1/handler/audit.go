@@ -8,13 +8,13 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/ownerofglory/billpiggy/internal/core/domain"
+	"github.com/ownerofglory/billpiggy/internal/core/port/inbound"
 	"github.com/ownerofglory/billpiggy/internal/core/port/outbound"
-	"github.com/ownerofglory/billpiggy/internal/core/service"
 	sharedauth "github.com/ownerofglory/billpiggy/pkg/auth"
 )
 
 // RegisterAuditRoutes mounts the super-admin audit trail query endpoint.
-func RegisterAuditRoutes(router chi.Router, audit *service.AuditService, middleware *sharedauth.Middleware) {
+func RegisterAuditRoutes(router chi.Router, audit inbound.AuditService, middleware *sharedauth.Middleware) {
 	h := auditHandler{service: audit}
 	router.Route(basePathV1+"/audit", func(routes chi.Router) {
 		routes.Use(middleware.RequireAuthentication, permission(middleware, domain.PermissionAuditRead))
@@ -22,7 +22,7 @@ func RegisterAuditRoutes(router chi.Router, audit *service.AuditService, middlew
 	})
 }
 
-type auditHandler struct{ service *service.AuditService }
+type auditHandler struct{ service inbound.AuditService }
 
 // list returns audit entries matching the request's filters.
 //

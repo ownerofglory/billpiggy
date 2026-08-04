@@ -24,6 +24,7 @@ import (
 	openaiadapter "github.com/ownerofglory/billpiggy/internal/adapter/outbound/openai"
 	postgresadapter "github.com/ownerofglory/billpiggy/internal/adapter/outbound/postgres"
 	"github.com/ownerofglory/billpiggy/internal/core/domain"
+	"github.com/ownerofglory/billpiggy/internal/core/port/inbound"
 	"github.com/ownerofglory/billpiggy/internal/core/port/outbound"
 	"github.com/ownerofglory/billpiggy/internal/core/service"
 	"github.com/ownerofglory/billpiggy/pkg/email"
@@ -220,7 +221,14 @@ func main() {
 	if adapters.pool != nil {
 		go cleanupRateLimitWindows(ctx, postgresadapter.NewRateLimiter(adapters.pool, 0, 0))
 	}
-	var assistantService *service.AssistantService
+	// assistantService and intakeService are declared as their inbound
+	// interfaces, not concrete pointers: the handlers check `h.service != nil`
+	// to report "not configured" when no OpenAI key is set, and assigning a
+	// nil *service.AssistantService into an interface variable would produce
+	// a non-nil interface holding a nil pointer, breaking that check. Each
+	// concrete value is built in full locally and only assigned to the
+	// interface variable once construction has succeeded.
+	var assistantService inbound.AssistantService
 	if cfg.OpenAIAPIKey != "" {
 		client, err := openaiadapter.NewClient(cfg.OpenAIAPIKey,
 			openaiadapter.WithModel(cfg.OpenAIAssistantModel),
@@ -236,16 +244,16 @@ func main() {
 			os.Exit(1)
 		}
 		auditedProvider = auditedProvider.WithMetrics(aiCalls, aiTokens)
-		assistantService, err = service.NewAssistantService(auditedProvider, adapters.expenses, adapters.budgets)
+		concreteAssistant, err := service.NewAssistantService(auditedProvider, adapters.expenses, adapters.budgets)
 		if err != nil {
 			slog.Error("configure assistant", "error", err)
 			os.Exit(1)
 		}
-		assistantService = assistantService.
+		assistantService = concreteAssistant.
 			WithModel(cfg.OpenAIAssistantModel).
 			WithLimiter(adapters.newLimiter(assistantRateLimit, assistantRateInterval))
 	}
-	var intakeService *service.ExpenseIntakeService
+	var intakeService inbound.ExpenseIntakeService
 	if cfg.OpenAIAPIKey != "" {
 		client, err := openaiadapter.NewClient(cfg.OpenAIAPIKey, openaiadapter.WithBaseURL(cfg.OpenAIBaseURL), openaiadapter.WithLogger(slog.Default()))
 		if err != nil {
@@ -264,12 +272,12 @@ func main() {
 			os.Exit(1)
 		}
 		auditedTranscriber = auditedTranscriber.WithMetrics(aiCalls, aiTokens)
-		intakeService, err = service.NewExpenseIntakeService(auditedProvider, auditedTranscriber)
+		concreteIntake, err := service.NewExpenseIntakeService(auditedProvider, auditedTranscriber)
 		if err != nil {
 			slog.Error("configure expense intake", "error", err)
 			os.Exit(1)
 		}
-		intakeService = intakeService.WithLimiter(adapters.newLimiter(service.IntakeRateLimit, service.IntakeRateInterval))
+		intakeService = concreteIntake.WithLimiter(adapters.newLimiter(service.IntakeRateLimit, service.IntakeRateInterval))
 	}
 
 	// HTTP handler setup
