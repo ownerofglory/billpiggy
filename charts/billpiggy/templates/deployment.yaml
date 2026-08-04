@@ -47,6 +47,10 @@ spec:
             - name: OPENAI_BASE_URL
               value: {{ .Values.env.openAIBaseURL | quote }}
             {{- end }}
+            {{- if .Values.env.publicBaseURL }}
+            - name: PUBLIC_BASE_URL
+              value: {{ .Values.env.publicBaseURL | quote }}
+            {{- end }}
           envFrom:
             - secretRef:
                 name: {{ default (include "billpiggy.fullname" .) .Values.existingSecret }}

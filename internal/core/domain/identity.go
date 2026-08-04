@@ -57,11 +57,26 @@ type AppUser struct {
 	Role                      UserRole
 	AccessBlocked             bool
 	EmailNotificationsEnabled bool
+	// NotificationPreferences overrides EmailNotificationsEnabled per
+	// NotificationKind. A kind absent from the map follows
+	// EmailNotificationsEnabled; a kind present overrides it in either
+	// direction, so a user can mute budget alerts alone without losing
+	// report-ready emails, for example.
+	NotificationPreferences map[NotificationKind]bool
 	// AIEnabled opts the user into AI features (the assistant, receipt
 	// extraction, sentence and dictation expense entry). Defaults to true.
 	AIEnabled bool
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+// WantsNotification reports whether kind should be emailed to the user,
+// applying NotificationPreferences as an override to EmailNotificationsEnabled.
+func (u AppUser) WantsNotification(kind NotificationKind) bool {
+	if override, ok := u.NotificationPreferences[kind]; ok {
+		return override
+	}
+	return u.EmailNotificationsEnabled
 }
 
 // Invitation permits a specific email address to create an account.

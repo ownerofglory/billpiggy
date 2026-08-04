@@ -119,7 +119,7 @@ func (h authHandler) acceptInvitation(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusUnauthorized, "invitation is invalid or expired")
 		return
 	}
-	writeJSON(w, http.StatusCreated, userResponse(user))
+	writeJSON(w, http.StatusCreated, userPublic(user))
 }
 
 // invite creates a new invitation. It requires users:invite permission.
@@ -188,9 +188,6 @@ func (authorizer) Allows(identity sharedauth.Identity, permission string) bool {
 	return domain.UserRole(identity.Role).Allows(domain.Permission(permission))
 }
 
-func userResponse(user domain.AppUser) userResponseBody {
-	return userResponseBody{ID: user.ID, Email: user.Email, DisplayName: user.DisplayName, Role: string(user.Role), EmailNotificationsEnabled: user.EmailNotificationsEnabled, AIEnabled: user.AIEnabled}
-}
 func decodeJSON(w http.ResponseWriter, r *http.Request, target any) bool {
 	if err := json.NewDecoder(r.Body).Decode(target); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "invalid JSON request")
@@ -221,12 +218,13 @@ type invitationRequest struct {
 	Role  domain.UserRole `json:"role"`
 }
 type userResponseBody struct {
-	ID                        string `json:"id"`
-	Email                     string `json:"email"`
-	DisplayName               string `json:"display_name"`
-	Role                      string `json:"role"`
-	EmailNotificationsEnabled bool   `json:"email_notifications_enabled"`
-	AIEnabled                 bool   `json:"ai_enabled"`
+	ID                        string                           `json:"id"`
+	Email                     string                           `json:"email"`
+	DisplayName               string                           `json:"display_name"`
+	Role                      string                           `json:"role"`
+	EmailNotificationsEnabled bool                             `json:"email_notifications_enabled"`
+	NotificationPreferences   map[domain.NotificationKind]bool `json:"notification_preferences"`
+	AIEnabled                 bool                             `json:"ai_enabled"`
 }
 type currentUserResponse struct {
 	ID    string `json:"id"`

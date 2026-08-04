@@ -18,6 +18,7 @@ func RegisterUserRoutes(router chi.Router, auth *service.AuthService, middleware
 		routes.Use(middleware.RequireAuthentication)
 		routes.Get("/me/profile", h.profile)
 		routes.Put("/me/profile", h.updateProfile)
+		routes.Put("/me/notification-preferences", h.updateNotificationPreferences)
 		routes.With(permission(middleware, domain.PermissionUsersManage)).Get("/", h.list)
 		routes.With(permission(middleware, domain.PermissionUsersManage)).Put("/{userID}", h.manage)
 		routes.With(permission(middleware, domain.PermissionUsersManage)).Delete("/{userID}", h.delete)
@@ -41,7 +42,10 @@ func (h userHandler) actor(r *http.Request) domain.AppUser {
 	return domain.AppUser{ID: identity.Subject, Role: domain.UserRole(identity.Role)}
 }
 func userPublic(value domain.AppUser) userResponseBody {
-	return userResponseBody{ID: value.ID, Email: value.Email, DisplayName: value.DisplayName, Role: string(value.Role), EmailNotificationsEnabled: value.EmailNotificationsEnabled, AIEnabled: value.AIEnabled}
+	return userResponseBody{
+		ID: value.ID, Email: value.Email, DisplayName: value.DisplayName, Role: string(value.Role),
+		EmailNotificationsEnabled: value.EmailNotificationsEnabled, NotificationPreferences: value.NotificationPreferences, AIEnabled: value.AIEnabled,
+	}
 }
 
 // profile returns the authenticated user's profile.
@@ -77,6 +81,30 @@ func (h userHandler) updateProfile(w http.ResponseWriter, r *http.Request) {
 	user, err := h.service.UpdateProfile(r.Context(), h.actor(r).ID, req.DisplayName, req.Email, req.EmailNotificationsEnabled, req.AIEnabled)
 	if err != nil {
 		writeJSONError(w, 400, "profile could not be updated")
+		return
+	}
+	writeJSON(w, 200, userPublic(user))
+}
+
+// updateNotificationPreferences overrides EmailNotificationsEnabled per
+// notification kind. A kind omitted from the request body falls back to the
+// master switch set through updateProfile.
+//
+//	@Summary	Update notification preferences
+//	@Tags		users
+//	@Accept		json
+//	@Produce	json
+//	@Param		request	body		map[string]bool	true	"Per-kind overrides, keyed by notification kind (invitation, budget_alert, report_ready, access_changed)"
+//	@Success	200		{object}	userResponseBody
+//	@Router		/billpiggy/api/v1/users/me/notification-preferences [put]
+func (h userHandler) updateNotificationPreferences(w http.ResponseWriter, r *http.Request) {
+	var preferences map[domain.NotificationKind]bool
+	if !decodeJSON(w, r, &preferences) {
+		return
+	}
+	user, err := h.service.UpdateNotificationPreferences(r.Context(), h.actor(r).ID, preferences)
+	if err != nil {
+		writeJSONError(w, 400, "notification preferences could not be updated")
 		return
 	}
 	writeJSON(w, 200, userPublic(user))

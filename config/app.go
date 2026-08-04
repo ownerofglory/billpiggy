@@ -27,6 +27,10 @@ type BillPiggyAppConfig struct {
 	SMTPUsername string `env:"SMTP_USERNAME"`
 	SMTPPassword string `env:"SMTP_PASSWORD"`
 	SMTPFrom     string `env:"SMTP_FROM"`
+	// PublicBaseURL is the externally reachable app URL used to build links in
+	// outgoing emails, such as an invitation's accept link. Without it, an
+	// invitation email carries the raw invitation code instead of a link.
+	PublicBaseURL string `env:"PUBLIC_BASE_URL"`
 	// MinIOEndpoint selects the S3-compatible object store. Without it uploads
 	// are held in memory, which is intended for local development only.
 	MinIOEndpoint  string `env:"MINIO_ENDPOINT"`

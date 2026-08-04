@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -38,6 +39,9 @@ type AuthConfig struct {
 	InvitationTTL               time.Duration
 	BootstrapSuperAdminEmail    string
 	BootstrapSuperAdminPassword string
+	// PublicBaseURL, when set, lets Invite build a clickable accept-invitation
+	// link. Without it, the invitation email carries the raw code instead.
+	PublicBaseURL string
 }
 
 // ObjectResourceProfileImage identifies profile images to the object
@@ -46,10 +50,12 @@ const ObjectResourceProfileImage = "user_profile_image"
 
 // AuthService implements password login, refresh rotation, invitation acceptance, and RBAC.
 type AuthService struct {
-	repository outbound.IdentityRepository
-	config     AuthConfig
-	objectRefs outbound.ObjectReferenceRepository
-	now        func() time.Time
+	repository    outbound.IdentityRepository
+	config        AuthConfig
+	objectRefs    outbound.ObjectReferenceRepository
+	notifications outbound.NotificationRepository
+	now           func() time.Time
+	ids           func() string
 }
 
 // NewAuthService creates an auth service. JWT secrets shorter than 32 bytes are rejected.
@@ -73,7 +79,16 @@ func NewAuthService(repository outbound.IdentityRepository, config AuthConfig) (
 		config.InvitationTTL = 7 * 24 * time.Hour
 	}
 
-	return &AuthService{repository: repository, config: config, now: time.Now}, nil
+	return &AuthService{repository: repository, config: config, now: time.Now, ids: uuid.NewString}, nil
+}
+
+// WithNotifications enables the invitation and access-changed email
+// producers. Without it, Invite and ManageUser skip queuing and only the
+// raw invitation token (returned to the caller) or the updated user record
+// (returned from ManageUser) reflects the change; no email is ever queued.
+func (s *AuthService) WithNotifications(notifications outbound.NotificationRepository) *AuthService {
+	s.notifications = notifications
+	return s
 }
 
 // WithObjectReferences enables profile-image retention tracking. Without it,
@@ -164,7 +179,32 @@ func (s *AuthService) Invite(ctx context.Context, actor domain.AppUser, email st
 	if err := s.repository.CreateInvitation(ctx, invitation); err != nil {
 		return InvitationDelivery{}, fmt.Errorf("create invitation: %w", err)
 	}
+	if err := s.queueInvitationEmail(ctx, invitation, rawToken); err != nil {
+		return InvitationDelivery{}, fmt.Errorf("queue invitation email: %w", err)
+	}
 	return InvitationDelivery{Invitation: invitation, RawToken: rawToken}, nil
+}
+
+// queueInvitationEmail queues the invitation notification. Its payload
+// necessarily carries the raw token — the invitation row only ever stores a
+// one-way hash of it, so this is the only point the plaintext exists to be
+// emailed at all. See [domain.NotificationDelivery.Payload] for how that
+// exposure is bounded.
+func (s *AuthService) queueInvitationEmail(ctx context.Context, invitation domain.Invitation, rawToken string) error {
+	if s.notifications == nil {
+		return nil
+	}
+	payload := map[string]string{
+		"role":       string(invitation.Role),
+		"token":      rawToken,
+		"expires_at": invitation.ExpiresAt.Format(time.RFC3339),
+	}
+	if s.config.PublicBaseURL != "" {
+		payload["accept_url"] = strings.TrimRight(s.config.PublicBaseURL, "/") + "/accept-invitation?token=" + rawToken
+	}
+	return s.notifications.QueueNotification(ctx, domain.NotificationDelivery{
+		ID: s.ids(), RecipientEmail: invitation.Email, Kind: domain.NotificationInvitation, Payload: payload, CreatedAt: s.now(), Status: domain.NotificationPending,
+	})
 }
 
 // AcceptInvitation creates a user from a valid invitation token. Self-registration is not supported.
@@ -286,6 +326,21 @@ func (s *AuthService) UpdateProfile(ctx context.Context, userID, displayName, em
 	return user, nil
 }
 
+// UpdateNotificationPreferences replaces the current user's per-kind
+// overrides of EmailNotificationsEnabled. A kind absent from preferences
+// falls back to that master switch; see [domain.AppUser.WantsNotification].
+func (s *AuthService) UpdateNotificationPreferences(ctx context.Context, userID string, preferences map[domain.NotificationKind]bool) (domain.AppUser, error) {
+	user, err := s.repository.GetUserByID(ctx, userID)
+	if err != nil {
+		return domain.AppUser{}, ErrNotFound
+	}
+	user.NotificationPreferences, user.UpdatedAt = preferences, s.now()
+	if err := s.repository.UpdateUser(ctx, user); err != nil {
+		return domain.AppUser{}, err
+	}
+	return user, nil
+}
+
 // GetProfile returns the current user's profile projection.
 func (s *AuthService) GetProfile(ctx context.Context, userID string) (domain.AppUser, error) {
 	user, err := s.repository.GetUserByID(ctx, userID)
@@ -341,11 +396,35 @@ func (s *AuthService) ManageUser(ctx context.Context, actor domain.AppUser, user
 	if !validRole(role) || role == domain.RoleSuperAdmin {
 		return domain.AppUser{}, ErrConflict
 	}
+	changed := user.Role != role || user.AccessBlocked != blocked
 	user.Role, user.AccessBlocked, user.UpdatedAt = role, blocked, s.now()
 	if err := s.repository.UpdateUser(ctx, user); err != nil {
 		return domain.AppUser{}, err
 	}
+	if changed {
+		if err := s.queueAccessChangedEmail(ctx, user); err != nil {
+			return domain.AppUser{}, fmt.Errorf("queue access changed email: %w", err)
+		}
+	}
 	return user, nil
+}
+
+// queueAccessChangedEmail queues the access-changed notification. Unlike
+// most notification producers this can't sit behind the user's own
+// preference toggle: the whole point is telling someone their access just
+// changed, possibly including being blocked, so honouring an opt-out here
+// would let a blocked user silently miss the one email that explains why.
+func (s *AuthService) queueAccessChangedEmail(ctx context.Context, user domain.AppUser) error {
+	if s.notifications == nil {
+		return nil
+	}
+	payload := map[string]string{
+		"role":    string(user.Role),
+		"blocked": strconv.FormatBool(user.AccessBlocked),
+	}
+	return s.notifications.QueueNotification(ctx, domain.NotificationDelivery{
+		ID: s.ids(), RecipientEmail: user.Email, Kind: domain.NotificationAccessChanged, Payload: payload, CreatedAt: s.now(), Status: domain.NotificationPending,
+	})
 }
 
 // DeleteUser removes a member or administrator but never a super-admin.

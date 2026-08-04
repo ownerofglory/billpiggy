@@ -472,6 +472,10 @@ definitions:
         type: boolean
       id:
         type: string
+      notification_preferences:
+        additionalProperties:
+          type: boolean
+        type: object
       role:
         type: string
     type: object
@@ -1327,6 +1331,30 @@ paths:
       summary: Manage user
       tags:
       - administration
+  /billpiggy/api/v1/users/me/notification-preferences:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Per-kind overrides, keyed by notification kind (invitation, budget_alert,
+          report_ready, access_changed)
+        in: body
+        name: request
+        required: true
+        schema:
+          additionalProperties:
+            type: boolean
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.userResponseBody'
+      summary: Update notification preferences
+      tags:
+      - users
   /billpiggy/api/v1/users/me/profile:
     get:
       produces:

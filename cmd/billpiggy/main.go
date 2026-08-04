@@ -115,12 +115,13 @@ func main() {
 	}
 	authService, err := service.NewAuthService(adapters.identity, service.AuthConfig{
 		JWTSecret: cfg.JWTSecret, BootstrapSuperAdminEmail: cfg.BootstrapSuperAdminEmail, BootstrapSuperAdminPassword: cfg.BootstrapSuperAdminPassword,
+		PublicBaseURL: cfg.PublicBaseURL,
 	})
 	if err != nil {
 		slog.Error("configure authentication", "error", err)
 		os.Exit(1)
 	}
-	authService = authService.WithObjectReferences(adapters.objectRefs)
+	authService = authService.WithObjectReferences(adapters.objectRefs).WithNotifications(adapters.notifications)
 	if err := authService.EnsureBootstrapSuperAdmin(ctx); err != nil {
 		slog.Error("bootstrap authentication", "error", err)
 		os.Exit(1)
@@ -475,10 +476,11 @@ func cleanupRateLimitWindows(ctx context.Context, limiter *postgresadapter.RateL
 }
 
 func deliverNotifications(ctx context.Context, notifications *service.NotificationService, users outbound.IdentityRepository, sender service.EmailSender) {
+	workerID := notificationWorkerID()
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 	for {
-		if err := notifications.DeliverPending(ctx, users, sender, 25); err != nil {
+		if err := notifications.DeliverPending(ctx, users, sender, workerID, 25); err != nil {
 			slog.Error("deliver notifications", "error", err)
 		}
 		select {
@@ -487,6 +489,16 @@ func deliverNotifications(ctx context.Context, notifications *service.Notificati
 		case <-ticker.C:
 		}
 	}
+}
+
+// notificationWorkerID identifies this replica's lease holder, so a stuck
+// delivery's locked_by names the process that abandoned it.
+func notificationWorkerID() string {
+	host, err := os.Hostname()
+	if err != nil {
+		host = "unknown"
+	}
+	return fmt.Sprintf("%s-%d", host, os.Getpid())
 }
 
 func logLevel(value string) slog.Level {
