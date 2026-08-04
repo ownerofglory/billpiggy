@@ -17,6 +17,17 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - name: Check formatting
+        run: |
+          unformatted=$(gofmt -l $(find . -name '*.go' -not -path './bin/*'))
+          if [ -n "$unformatted" ]; then
+            echo "The following files are not gofmt formatted:"
+            echo "$unformatted"
+            echo "Run 'make fmt' and commit the result."
+            exit 1
+          fi
+      - name: Vet
+        run: make vet
       - name: Test with coverage
         run: make coverage
       - uses: actions/upload-artifact@v4
@@ -35,3 +46,75 @@ jobs:
           go-version-file: go.mod
       - run: make build
       - run: make helm-lint
+      - run: make helm-template
+
+  openapi-drift:
+    name: OpenAPI spec is up to date
+    needs: test
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: make generate-openapi
+      - name: Fail if api/openapi.yaml is stale
+        run: |
+          if ! git diff --exit-code -- api/openapi.yaml; then
+            echo "api/openapi.yaml does not match the current handler annotations."
+            echo "Run 'make generate-openapi' and commit the result."
+            exit 1
+          fi
+
+  integration:
+    name: Integration tests
+    needs: test
+    runs-on: ubuntu-22.04
+    services:
+      # A stock image is enough here: the test suite applies every migration
+      # itself (internal/adapter/outbound/postgres/integration_test.go),
+      # dropping and recreating the schema first, so nothing needs the
+      # migrations baked into infra/postgres/Dockerfile the way local
+      # development's compose.yaml does.
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: billpiggy
+          POSTGRES_USER: billpiggy
+          POSTGRES_PASSWORD: billpiggy
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U billpiggy -d billpiggy"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # MinIO runs as a plain container step rather than a `services:` entry:
+      # GitHub Actions service containers only ever run an image's default
+      # ENTRYPOINT/CMD with no way to pass `server /data`, which the MinIO
+      # image requires to start at all.
+      - name: Start MinIO
+        run: |
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER=billpiggy \
+            -e MINIO_ROOT_PASSWORD=billpiggy-dev-secret \
+            minio/minio:RELEASE.2025-04-22T22-12-26Z server /data
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:9000/minio/health/live && exit 0
+            sleep 1
+          done
+          echo "MinIO did not become healthy in time" >&2
+          docker logs minio
+          exit 1
+      - name: Run integration tests
+        env:
+          TEST_DATABASE_URL: postgres://billpiggy:billpiggy@localhost:5432/billpiggy?sslmode=disable
+          TEST_MINIO_ENDPOINT: localhost:9000
+          TEST_MINIO_ACCESS_KEY: billpiggy
+          TEST_MINIO_SECRET_KEY: billpiggy-dev-secret
+        run: go test -tags=integration -race ./...

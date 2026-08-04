@@ -45,3 +45,33 @@ variable "minio_app_password" {
   type        = string
   sensitive   = true
 }
+
+variable "minio_backup_user" {
+  description = "Access key for the scoped backup user, provisioned with access to only the billpiggy-backups bucket. Used solely by the in-cluster backup CronJobs, never by the application."
+  type        = string
+  sensitive   = true
+}
+
+variable "minio_backup_password" {
+  description = "Secret key for the scoped backup user."
+  type        = string
+  sensitive   = true
+}
+
+variable "postgres_backup_schedule" {
+  description = "Cron schedule (in the cluster's UTC clock) for the nightly PostgreSQL dump CronJob."
+  type        = string
+  default     = "0 3 * * *"
+}
+
+variable "minio_backup_schedule" {
+  description = "Cron schedule for the CronJob that mirrors the billpiggy bucket into billpiggy-backups."
+  type        = string
+  default     = "30 3 * * *"
+}
+
+variable "backup_retention_days" {
+  description = "Number of days of PostgreSQL dumps to retain in billpiggy-backups before the nightly job prunes them. Does not affect the MinIO mirror, which always reflects the live bucket."
+  type        = number
+  default     = 14
+}

@@ -37,3 +37,9 @@ pass.zip
 # .vscode/
 
 bin/
+
+# Terraform local state/plugin cache from `terraform init`/`validate`; never committed.
+.terraform/
+*.tfplan
+*.tfstate
+*.tfstate.*

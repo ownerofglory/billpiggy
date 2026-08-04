@@ -9,6 +9,11 @@ k3s deployment:
 It uses Helm and Kubernetes providers rather than shelling out to cluster commands.
 The configuration has no cluster credentials or passwords committed to the repository.
 
+It also provisions a `billpiggy-backups` bucket and two `CronJob`s: a nightly
+PostgreSQL dump uploaded to that bucket, and a periodic mirror of the `billpiggy`
+bucket into it. See [the backup and DR doc](../../docs/backup-and-disaster-recovery.md)
+for what's covered, restore steps, and current limitations.
+
 ## State and GitHub Actions
 
 The manual **Apply production infrastructure** workflow requires an HTTP Terraform
