@@ -141,9 +141,12 @@ func main() {
 	}
 	var assistantService *service.AssistantService
 	if cfg.OpenAIAPIKey != "" {
-		provider, err := openaiadapter.NewAssistant(cfg.OpenAIAPIKey, cfg.OpenAIAssistantModel)
+		provider, err := openaiadapter.NewClient(cfg.OpenAIAPIKey,
+			openaiadapter.WithModel(cfg.OpenAIAssistantModel),
+			openaiadapter.WithBaseURL(cfg.OpenAIBaseURL),
+			openaiadapter.WithLogger(slog.Default()))
 		if err != nil {
-			slog.Error("configure OpenAI assistant", "error", err)
+			slog.Error("configure OpenAI client", "error", err)
 			os.Exit(1)
 		}
 		assistantService, err = service.NewAssistantService(provider, adapters.expenses, adapters.budgets)
@@ -151,6 +154,7 @@ func main() {
 			slog.Error("configure assistant", "error", err)
 			os.Exit(1)
 		}
+		assistantService = assistantService.WithModel(cfg.OpenAIAssistantModel)
 	}
 
 	// HTTP handler setup

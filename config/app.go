@@ -41,6 +41,9 @@ type BillPiggyAppConfig struct {
 	OpenAIAPIKey string `env:"OPENAI_API_KEY"`
 	// OpenAIAssistantModel is the conversational model used by the assistant.
 	OpenAIAssistantModel string `env:"OPENAI_ASSISTANT_MODEL" envDefault:"gpt-5.6-luna"`
+	// OpenAIBaseURL overrides the API endpoint, for routing through a
+	// compatible gateway. Empty uses the provider's own endpoint.
+	OpenAIBaseURL string `env:"OPENAI_BASE_URL"`
 }
 
 // Validate rejects production configurations that could silently lose state or sign unsafe tokens.

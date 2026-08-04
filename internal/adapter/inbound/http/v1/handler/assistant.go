@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+
 	"github.com/ownerofglory/billpiggy/internal/core/service"
 	sharedauth "github.com/ownerofglory/billpiggy/pkg/auth"
 	"github.com/ownerofglory/billpiggy/pkg/sse"
@@ -22,7 +23,10 @@ type assistantRequest struct {
 	Message string `json:"message"`
 }
 
-// streamAssistantUnavailable provides the stable SSE contract until a provider is configured.
+// chat streams an assistant answer as Server-Sent Events.
+//
+// Deltas are relayed as the model produces them rather than buffered into one
+// event, so the client renders the answer progressively.
 //
 //	@Summary	Stream an assistant response
 //	@Tags		assistant
@@ -33,26 +37,53 @@ type assistantRequest struct {
 //	@Failure	401		{object}	map[string]string
 //	@Router		/billpiggy/api/v1/assistant/chat [post]
 func (h assistantHandler) chat(w http.ResponseWriter, r *http.Request) {
+	// The request body is read before the SSE headers go out, so a malformed
+	// body still produces an ordinary JSON 400 rather than an error event on a
+	// stream the client has already committed to.
+	var request assistantRequest
+	if h.service != nil && !decodeJSON(w, r, &request) {
+		return
+	}
 	sse.Prepare(w)
 	_ = sse.Write(w, "message.started", map[string]string{"status": "started"})
 	if h.service == nil {
 		_ = sse.Write(w, "message.error", map[string]string{"code": "assistant_not_configured", "message": "Assistant provider is not configured"})
 		return
 	}
-	var request assistantRequest
-	if !decodeJSON(w, r, &request) {
+
+	identity, _ := sharedauth.IdentityFromContext(r.Context())
+	chunks, err := h.service.AskStream(r.Context(), identity.Subject, request.Message)
+	if err != nil {
+		writeAssistantError(w, err)
 		return
 	}
-	identity, _ := sharedauth.IdentityFromContext(r.Context())
-	answer, err := h.service.Ask(r.Context(), identity.Subject, request.Message)
+	for chunk := range chunks {
+		if chunk.Err != nil {
+			_ = sse.Write(w, "message.error", map[string]string{"code": "assistant_failed", "message": "Assistant could not answer"})
+			// Draining the rest keeps the provider goroutine from blocking on a
+			// channel nobody reads.
+			for range chunks {
+			}
+			return
+		}
+		if chunk.ContentDelta != "" {
+			if err := sse.Write(w, "message.delta", map[string]string{"delta": chunk.ContentDelta}); err != nil {
+				for range chunks {
+				}
+				return
+			}
+		}
+		if chunk.Done {
+			_ = sse.Write(w, "message.completed", map[string]string{"status": "completed"})
+		}
+	}
+}
+
+// writeAssistantError maps a request-time failure onto the SSE error contract.
+func writeAssistantError(w http.ResponseWriter, err error) {
 	if errors.Is(err, service.ErrForbidden) {
 		_ = sse.Write(w, "message.error", map[string]string{"code": "rate_limited", "message": "Assistant request limit reached"})
 		return
 	}
-	if err != nil {
-		_ = sse.Write(w, "message.error", map[string]string{"code": "assistant_failed", "message": "Assistant could not answer"})
-		return
-	}
-	_ = sse.Write(w, "message.delta", map[string]string{"delta": answer})
-	_ = sse.Write(w, "message.completed", map[string]string{"status": "completed"})
+	_ = sse.Write(w, "message.error", map[string]string{"code": "assistant_failed", "message": "Assistant could not answer"})
 }

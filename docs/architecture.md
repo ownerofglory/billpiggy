@@ -105,8 +105,28 @@ converted before AI extraction to reduce storage and image-token cost.
 
 ## AI workloads
 
-All AI features go through one outbound OpenAI adapter with per-user rate limits,
-usage metrics, request IDs, and an explicit opt-in setting. The selected defaults are:
+All AI features go through one outbound adapter behind the `AIProvider` port, with
+per-user rate limits, usage metrics, request IDs, and an explicit opt-in setting.
+
+The provider is abstracted in the domain rather than at the HTTP level. `domain.Message`,
+`domain.Tool`, `domain.ToolCall`, `domain.Completion` and `domain.CompletionRequest`
+describe a model conversation in application terms, and no OpenAI type crosses into the
+core. The port is two methods — `Complete` and `Stream` — because tools, structured
+output and model choice all travel inside the request rather than multiplying methods;
+adding a capability then does not change the interface every adapter and fake implements.
+
+The adapter wraps the official [`openai-go`](https://github.com/openai/openai-go) client
+rather than hand-rolled HTTP calls, so request shaping, retries and SSE framing are the
+library's concern. Its base URL is configurable through `OPENAI_BASE_URL`, which lets the
+adapter be driven by an `httptest` server in tests and routed through a compatible
+gateway in a deployment.
+
+Streaming is genuine end to end: the adapter forwards each token delta as the provider
+emits it, and the SSE handler relays it immediately. Tool calls are the exception — their
+arguments arrive split across chunks and are meaningless until complete, so they are
+accumulated by index and delivered once, whole, on the final chunk.
+
+The selected model defaults are:
 
 | Workload | Default model | Why |
 | --- | --- | --- |
