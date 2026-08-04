@@ -70,10 +70,27 @@ func (r *ExpenseRepository) GetExpense(ctx context.Context, ownerID, expenseID s
 	return expenses[0], nil
 }
 
-// ListExpenses returns owner-scoped expenses matching the search and filters.
+// GetExpenseVisible returns an expense the viewer owns or that is shared
+// with one of sharedGroupIDs.
+func (r *ExpenseRepository) GetExpenseVisible(ctx context.Context, viewerID, expenseID string, sharedGroupIDs []string) (domain.ExpenseRecord, error) {
+	querier := pgxtx.From(ctx, r.pool)
+	expense, err := scanExpense(querier.QueryRow(ctx, `select `+expenseColumns+` from expenses.expenses e left join expenses.categories c on c.id = e.category_id where e.id = $1 and (e.owner_id = $2 or e.shared_group_id = any($3::uuid[])) and e.deleted_at is null`, expenseID, viewerID, sharedGroupIDs))
+	if err != nil {
+		return domain.ExpenseRecord{}, err
+	}
+	expenses := []domain.ExpenseRecord{expense}
+	if err := loadRelations(ctx, querier, expenses); err != nil {
+		return domain.ExpenseRecord{}, err
+	}
+	return expenses[0], nil
+}
+
+// ListExpenses returns expenses matching the search and filters, scoped to
+// the owner plus, when SharedGroupIDs is set, expenses shared with any of
+// those groups.
 func (r *ExpenseRepository) ListExpenses(ctx context.Context, filter outbound.ExpenseListFilter) ([]domain.ExpenseRecord, error) {
-	query := `select ` + expenseColumns + ` from expenses.expenses e left join expenses.categories c on c.id = e.category_id where e.owner_id = $1 and e.deleted_at is null`
-	args := []any{filter.OwnerID}
+	query := `select ` + expenseColumns + ` from expenses.expenses e left join expenses.categories c on c.id = e.category_id where (e.owner_id = $1 or e.shared_group_id = any($2::uuid[])) and e.deleted_at is null`
+	args := []any{filter.OwnerID, filter.SharedGroupIDs}
 	if filter.Query != "" {
 		args = append(args, "%"+filter.Query+"%")
 		query += fmt.Sprintf(" and (e.title ilike $%d or coalesce(c.name, '') ilike $%d)", len(args), len(args))
@@ -81,6 +98,14 @@ func (r *ExpenseRepository) ListExpenses(ctx context.Context, filter outbound.Ex
 	if filter.CategoryID != "" {
 		args = append(args, filter.CategoryID)
 		query += fmt.Sprintf(" and e.category_id = $%d", len(args))
+	}
+	if !filter.From.IsZero() {
+		args = append(args, filter.From)
+		query += fmt.Sprintf(" and e.occurred_at >= $%d", len(args))
+	}
+	if !filter.To.IsZero() {
+		args = append(args, filter.To)
+		query += fmt.Sprintf(" and e.occurred_at < $%d", len(args))
 	}
 	// Tag filtering belongs in SQL: applying it in Go after LIMIT/OFFSET would
 	// silently return short pages. An expense matches when it carries every

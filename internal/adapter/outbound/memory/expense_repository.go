@@ -51,12 +51,26 @@ func (r *ExpenseRepository) GetExpense(_ context.Context, ownerID, expenseID str
 	return cloneExpense(expense), nil
 }
 
+// GetExpenseVisible returns an expense the viewer owns or that is shared
+// with one of sharedGroupIDs.
+func (r *ExpenseRepository) GetExpenseVisible(_ context.Context, viewerID, expenseID string, sharedGroupIDs []string) (domain.ExpenseRecord, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	expense, ok := r.expenses[expenseID]
+	if !ok || expense.DeletedAt != nil || (expense.OwnerID != viewerID && !hasMember(sharedGroupIDs, expense.SharedGroupID)) {
+		return domain.ExpenseRecord{}, errNotFound
+	}
+	return cloneExpense(expense), nil
+}
+
 func (r *ExpenseRepository) ListExpenses(_ context.Context, filter outbound.ExpenseListFilter) ([]domain.ExpenseRecord, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	expenses := make([]domain.ExpenseRecord, 0)
 	for _, expense := range r.expenses {
-		if expense.OwnerID != filter.OwnerID || expense.DeletedAt != nil || !matchesExpense(expense, filter) {
+		owned := expense.OwnerID == filter.OwnerID
+		shared := expense.SharedGroupID != "" && hasMember(filter.SharedGroupIDs, expense.SharedGroupID)
+		if (!owned && !shared) || expense.DeletedAt != nil || !matchesExpense(expense, filter) {
 			continue
 		}
 		expenses = append(expenses, cloneExpense(expense))
@@ -101,6 +115,12 @@ func matchesExpense(expense domain.ExpenseRecord, filter outbound.ExpenseListFil
 		return false
 	}
 	if filter.CategoryID != "" && expense.CategoryID != filter.CategoryID {
+		return false
+	}
+	if !filter.From.IsZero() && expense.OccurredAt.Before(filter.From) {
+		return false
+	}
+	if !filter.To.IsZero() && !expense.OccurredAt.Before(filter.To) {
 		return false
 	}
 	for _, wantedTagID := range filter.TagIDs {

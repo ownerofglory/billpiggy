@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -30,25 +31,34 @@ func (r *IdentityRepository) CountSuperAdmins(ctx context.Context) (int, error) 
 	return count, err
 }
 
+const userColumns = `id::text, email, password_hash, display_name, coalesce(profile_image_object_key, ''), role::text, access_blocked, email_notifications_enabled, notification_preferences, ai_enabled, created_at, updated_at`
+
 func (r *IdentityRepository) GetUserByID(ctx context.Context, id string) (domain.AppUser, error) {
-	return r.getUser(ctx, `select id::text, email, password_hash, display_name, coalesce(profile_image_object_key, ''), role::text, access_blocked, email_notifications_enabled, created_at, updated_at from identity.users where id = $1 and deleted_at is null`, id)
+	return r.getUser(ctx, `select `+userColumns+` from identity.users where id = $1 and deleted_at is null`, id)
 }
 
 func (r *IdentityRepository) GetUserByEmail(ctx context.Context, email string) (domain.AppUser, error) {
-	return r.getUser(ctx, `select id::text, email, password_hash, display_name, coalesce(profile_image_object_key, ''), role::text, access_blocked, email_notifications_enabled, created_at, updated_at from identity.users where email = $1 and deleted_at is null`, email)
+	return r.getUser(ctx, `select `+userColumns+` from identity.users where email = $1 and deleted_at is null`, email)
 }
 
 func (r *IdentityRepository) getUser(ctx context.Context, query string, argument any) (domain.AppUser, error) {
 	var user domain.AppUser
 	var role string
-	err := pgxtx.From(ctx, r.pool).QueryRow(ctx, query, argument).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.DisplayName, &user.ProfileImageObjectKey, &role, &user.AccessBlocked, &user.EmailNotificationsEnabled, &user.CreatedAt, &user.UpdatedAt)
+	var preferences []byte
+	err := pgxtx.From(ctx, r.pool).QueryRow(ctx, query, argument).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.DisplayName, &user.ProfileImageObjectKey, &role, &user.AccessBlocked, &user.EmailNotificationsEnabled, &preferences, &user.AIEnabled, &user.CreatedAt, &user.UpdatedAt)
+	if err != nil {
+		return domain.AppUser{}, err
+	}
 	user.Role = domain.UserRole(role)
-	return user, err
+	if err := unmarshalPreferences(preferences, &user.NotificationPreferences); err != nil {
+		return domain.AppUser{}, err
+	}
+	return user, nil
 }
 
 // ListUsers returns all active user projections for administration.
 func (r *IdentityRepository) ListUsers(ctx context.Context) ([]domain.AppUser, error) {
-	rows, err := pgxtx.From(ctx, r.pool).Query(ctx, `select id::text, email, password_hash, display_name, coalesce(profile_image_object_key, ''), role::text, access_blocked, email_notifications_enabled, created_at, updated_at from identity.users where deleted_at is null order by created_at`)
+	rows, err := pgxtx.From(ctx, r.pool).Query(ctx, `select `+userColumns+` from identity.users where deleted_at is null order by created_at`)
 	if err != nil {
 		return nil, err
 	}
@@ -57,10 +67,14 @@ func (r *IdentityRepository) ListUsers(ctx context.Context) ([]domain.AppUser, e
 	for rows.Next() {
 		var user domain.AppUser
 		var role string
-		if err := rows.Scan(&user.ID, &user.Email, &user.PasswordHash, &user.DisplayName, &user.ProfileImageObjectKey, &role, &user.AccessBlocked, &user.EmailNotificationsEnabled, &user.CreatedAt, &user.UpdatedAt); err != nil {
+		var preferences []byte
+		if err := rows.Scan(&user.ID, &user.Email, &user.PasswordHash, &user.DisplayName, &user.ProfileImageObjectKey, &role, &user.AccessBlocked, &user.EmailNotificationsEnabled, &preferences, &user.AIEnabled, &user.CreatedAt, &user.UpdatedAt); err != nil {
 			return nil, err
 		}
 		user.Role = domain.UserRole(role)
+		if err := unmarshalPreferences(preferences, &user.NotificationPreferences); err != nil {
+			return nil, err
+		}
 		values = append(values, user)
 	}
 	return values, rows.Err()
@@ -73,7 +87,11 @@ func (r *IdentityRepository) CreateUser(ctx context.Context, user domain.AppUser
 
 // UpdateUser replaces profile, authorization, and notification preference fields.
 func (r *IdentityRepository) UpdateUser(ctx context.Context, user domain.AppUser) error {
-	command, err := pgxtx.From(ctx, r.pool).Exec(ctx, `update identity.users set email=$2,password_hash=$3,display_name=$4,profile_image_object_key=nullif($5,''),role=$6,access_blocked=$7,email_notifications_enabled=$8,updated_at=$9 where id=$1 and deleted_at is null`, user.ID, user.Email, user.PasswordHash, user.DisplayName, user.ProfileImageObjectKey, user.Role, user.AccessBlocked, user.EmailNotificationsEnabled, user.UpdatedAt)
+	preferences, err := json.Marshal(user.NotificationPreferences)
+	if err != nil {
+		return fmt.Errorf("marshal notification preferences: %w", err)
+	}
+	command, err := pgxtx.From(ctx, r.pool).Exec(ctx, `update identity.users set email=$2,password_hash=$3,display_name=$4,profile_image_object_key=nullif($5,''),role=$6,access_blocked=$7,email_notifications_enabled=$8,notification_preferences=$9,ai_enabled=$10,updated_at=$11 where id=$1 and deleted_at is null`, user.ID, user.Email, user.PasswordHash, user.DisplayName, user.ProfileImageObjectKey, user.Role, user.AccessBlocked, user.EmailNotificationsEnabled, preferences, user.AIEnabled, user.UpdatedAt)
 	if err != nil {
 		return err
 	}
@@ -81,6 +99,16 @@ func (r *IdentityRepository) UpdateUser(ctx context.Context, user domain.AppUser
 		return pgx.ErrNoRows
 	}
 	return nil
+}
+
+// unmarshalPreferences decodes a jsonb notification_preferences column into
+// preferences, treating an empty column (never written, or written as '{}')
+// as no overrides rather than an error.
+func unmarshalPreferences(raw []byte, preferences *map[domain.NotificationKind]bool) error {
+	if len(raw) == 0 {
+		return nil
+	}
+	return json.Unmarshal(raw, preferences)
 }
 
 // DeleteUser soft-deletes a user projection.
@@ -150,6 +178,12 @@ func (r *IdentityRepository) RotateRefreshToken(ctx context.Context, oldTokenID 
 
 func (r *IdentityRepository) RevokeRefreshToken(ctx context.Context, tokenID string) error {
 	_, err := pgxtx.From(ctx, r.pool).Exec(ctx, `update identity.refresh_tokens set revoked_at = now() where id = $1 and revoked_at is null`, tokenID)
+	return err
+}
+
+// RevokeAllRefreshTokens revokes every live refresh token for userID.
+func (r *IdentityRepository) RevokeAllRefreshTokens(ctx context.Context, userID string) error {
+	_, err := pgxtx.From(ctx, r.pool).Exec(ctx, `update identity.refresh_tokens set revoked_at = now() where user_id = $1 and revoked_at is null`, userID)
 	return err
 }
 

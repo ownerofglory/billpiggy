@@ -27,6 +27,10 @@ type BillPiggyAppConfig struct {
 	SMTPUsername string `env:"SMTP_USERNAME"`
 	SMTPPassword string `env:"SMTP_PASSWORD"`
 	SMTPFrom     string `env:"SMTP_FROM"`
+	// PublicBaseURL is the externally reachable app URL used to build links in
+	// outgoing emails, such as an invitation's accept link. Without it, an
+	// invitation email carries the raw invitation code instead of a link.
+	PublicBaseURL string `env:"PUBLIC_BASE_URL"`
 	// MinIOEndpoint selects the S3-compatible object store. Without it uploads
 	// are held in memory, which is intended for local development only.
 	MinIOEndpoint  string `env:"MINIO_ENDPOINT"`
@@ -41,6 +45,9 @@ type BillPiggyAppConfig struct {
 	OpenAIAPIKey string `env:"OPENAI_API_KEY"`
 	// OpenAIAssistantModel is the conversational model used by the assistant.
 	OpenAIAssistantModel string `env:"OPENAI_ASSISTANT_MODEL" envDefault:"gpt-5.6-luna"`
+	// OpenAIBaseURL overrides the API endpoint, for routing through a
+	// compatible gateway. Empty uses the provider's own endpoint.
+	OpenAIBaseURL string `env:"OPENAI_BASE_URL"`
 }
 
 // Validate rejects production configurations that could silently lose state or sign unsafe tokens.

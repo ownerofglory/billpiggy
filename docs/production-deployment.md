@@ -27,13 +27,15 @@ that production deployment requires approval.
 | `SMTP_PASSWORD` | Optional | SMTP login password. |
 | `SMTP_FROM` | Optional | Sender address for BillPiggy notification email. |
 | `MINIO_ENDPOINT` | Yes | In-cluster MinIO endpoint, e.g. `billpiggy-minio.billpiggy-infra.svc.cluster.local:9000`. |
-| `MINIO_ACCESS_KEY` | Yes | MinIO application access key; use the initial root user only until a scoped user is provisioned. |
-| `MINIO_SECRET_KEY` | Yes | MinIO application secret key. |
+| `MINIO_ACCESS_KEY` | Yes | The scoped application user's access key (`MINIO_APP_USER` below) — never the root user. |
+| `MINIO_SECRET_KEY` | Yes | The scoped application user's secret key (`MINIO_APP_PASSWORD` below). |
 | `DOCKER_USER` | Image workflows | Docker Hub user used as the default image namespace. |
 | `DOCKER_TOKEN` | Image workflows | Docker Hub access token. |
 | `POSTGRES_PASSWORD` | IaC workflow | Password for the PostgreSQL application and administrative users. |
-| `MINIO_ROOT_USER` | IaC workflow | MinIO root access key. |
+| `MINIO_ROOT_USER` | IaC workflow | MinIO root access key. Operator-only; the application never uses it. |
 | `MINIO_ROOT_PASSWORD` | IaC workflow | MinIO root secret key. |
+| `MINIO_APP_USER` | IaC workflow | Access key for the application's scoped MinIO user, provisioned by Terraform with access to only the `billpiggy` bucket. Also set as `MINIO_ACCESS_KEY` above. |
+| `MINIO_APP_PASSWORD` | IaC workflow | Secret key for the scoped application user. Also set as `MINIO_SECRET_KEY` above. |
 | `TF_HTTP_ADDRESS` | IaC workflow | HTTP Terraform state endpoint. |
 | `TF_HTTP_USERNAME` | IaC workflow | HTTP state backend user, if required. |
 | `TF_HTTP_PASSWORD` | IaC workflow | HTTP state backend password, if required. |
@@ -58,6 +60,8 @@ bootstrapped.
 | `K3S_STORAGE_CLASS` | IaC workflow | `local-path` |
 | `MINIO_BUCKET` | Optional | `billpiggy` |
 | `MINIO_USE_SSL` | Optional | `false` for the in-cluster MinIO service |
+| `OPENAI_ASSISTANT_MODEL` | Optional | `gpt-5.6-luna` |
+| `OPENAI_BASE_URL` | Optional | Empty routes to `api.openai.com`; set to point the assistant at a compatible gateway instead. |
 
 ## Database migrations
 

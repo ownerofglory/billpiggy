@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -38,13 +39,23 @@ type AuthConfig struct {
 	InvitationTTL               time.Duration
 	BootstrapSuperAdminEmail    string
 	BootstrapSuperAdminPassword string
+	// PublicBaseURL, when set, lets Invite build a clickable accept-invitation
+	// link. Without it, the invitation email carries the raw code instead.
+	PublicBaseURL string
 }
+
+// ObjectResourceProfileImage identifies profile images to the object
+// reference tracker.
+const ObjectResourceProfileImage = "user_profile_image"
 
 // AuthService implements password login, refresh rotation, invitation acceptance, and RBAC.
 type AuthService struct {
-	repository outbound.IdentityRepository
-	config     AuthConfig
-	now        func() time.Time
+	repository    outbound.IdentityRepository
+	config        AuthConfig
+	objectRefs    outbound.ObjectReferenceRepository
+	notifications outbound.NotificationRepository
+	now           func() time.Time
+	ids           func() string
 }
 
 // NewAuthService creates an auth service. JWT secrets shorter than 32 bytes are rejected.
@@ -68,7 +79,24 @@ func NewAuthService(repository outbound.IdentityRepository, config AuthConfig) (
 		config.InvitationTTL = 7 * 24 * time.Hour
 	}
 
-	return &AuthService{repository: repository, config: config, now: time.Now}, nil
+	return &AuthService{repository: repository, config: config, now: time.Now, ids: uuid.NewString}, nil
+}
+
+// WithNotifications enables the invitation and access-changed email
+// producers. Without it, Invite and ManageUser skip queuing and only the
+// raw invitation token (returned to the caller) or the updated user record
+// (returned from ManageUser) reflects the change; no email is ever queued.
+func (s *AuthService) WithNotifications(notifications outbound.NotificationRepository) *AuthService {
+	s.notifications = notifications
+	return s
+}
+
+// WithObjectReferences enables profile-image retention tracking. Without it,
+// UpdateProfileImage and DeleteUser skip tracking and replaced or orphaned
+// profile images are never reclaimed.
+func (s *AuthService) WithObjectReferences(references outbound.ObjectReferenceRepository) *AuthService {
+	s.objectRefs = references
+	return s
 }
 
 // EnsureBootstrapSuperAdmin creates the first protected administrator when the database is empty.
@@ -151,7 +179,32 @@ func (s *AuthService) Invite(ctx context.Context, actor domain.AppUser, email st
 	if err := s.repository.CreateInvitation(ctx, invitation); err != nil {
 		return InvitationDelivery{}, fmt.Errorf("create invitation: %w", err)
 	}
+	if err := s.queueInvitationEmail(ctx, invitation, rawToken); err != nil {
+		return InvitationDelivery{}, fmt.Errorf("queue invitation email: %w", err)
+	}
 	return InvitationDelivery{Invitation: invitation, RawToken: rawToken}, nil
+}
+
+// queueInvitationEmail queues the invitation notification. Its payload
+// necessarily carries the raw token — the invitation row only ever stores a
+// one-way hash of it, so this is the only point the plaintext exists to be
+// emailed at all. See [domain.NotificationDelivery.Payload] for how that
+// exposure is bounded.
+func (s *AuthService) queueInvitationEmail(ctx context.Context, invitation domain.Invitation, rawToken string) error {
+	if s.notifications == nil {
+		return nil
+	}
+	payload := map[string]string{
+		"role":       string(invitation.Role),
+		"token":      rawToken,
+		"expires_at": invitation.ExpiresAt.Format(time.RFC3339),
+	}
+	if s.config.PublicBaseURL != "" {
+		payload["accept_url"] = strings.TrimRight(s.config.PublicBaseURL, "/") + "/accept-invitation?token=" + rawToken
+	}
+	return s.notifications.QueueNotification(ctx, domain.NotificationDelivery{
+		ID: s.ids(), RecipientEmail: invitation.Email, Kind: domain.NotificationInvitation, Payload: payload, CreatedAt: s.now(), Status: domain.NotificationPending,
+	})
 }
 
 // AcceptInvitation creates a user from a valid invitation token. Self-registration is not supported.
@@ -245,7 +298,7 @@ func newUser(email, password, displayName string, role domain.UserRole, now time
 	if err != nil {
 		return domain.AppUser{}, fmt.Errorf("hash password: %w", err)
 	}
-	return domain.AppUser{ID: uuid.NewString(), Email: normalizeEmail(email), PasswordHash: string(hash), DisplayName: strings.TrimSpace(displayName), Role: role, EmailNotificationsEnabled: true, CreatedAt: now, UpdatedAt: now}, nil
+	return domain.AppUser{ID: uuid.NewString(), Email: normalizeEmail(email), PasswordHash: string(hash), DisplayName: strings.TrimSpace(displayName), Role: role, EmailNotificationsEnabled: true, AIEnabled: true, CreatedAt: now, UpdatedAt: now}, nil
 }
 
 // ListUsers returns active users for an administrator.
@@ -256,13 +309,14 @@ func (s *AuthService) ListUsers(ctx context.Context, actor domain.AppUser) ([]do
 	return s.repository.ListUsers(ctx)
 }
 
-// UpdateProfile changes a user's own profile and notification preference.
-func (s *AuthService) UpdateProfile(ctx context.Context, userID, displayName, email string, notifications bool) (domain.AppUser, error) {
+// UpdateProfile changes a user's own profile, notification preference, and AI
+// opt-in setting.
+func (s *AuthService) UpdateProfile(ctx context.Context, userID, displayName, email string, notifications, aiEnabled bool) (domain.AppUser, error) {
 	user, err := s.repository.GetUserByID(ctx, userID)
 	if err != nil {
 		return domain.AppUser{}, ErrNotFound
 	}
-	user.DisplayName, user.Email, user.EmailNotificationsEnabled, user.UpdatedAt = strings.TrimSpace(displayName), normalizeEmail(email), notifications, s.now()
+	user.DisplayName, user.Email, user.EmailNotificationsEnabled, user.AIEnabled, user.UpdatedAt = strings.TrimSpace(displayName), normalizeEmail(email), notifications, aiEnabled, s.now()
 	if user.DisplayName == "" || user.Email == "" {
 		return domain.AppUser{}, ErrConflict
 	}
@@ -270,6 +324,47 @@ func (s *AuthService) UpdateProfile(ctx context.Context, userID, displayName, em
 		return domain.AppUser{}, err
 	}
 	return user, nil
+}
+
+// UpdateNotificationPreferences replaces the current user's per-kind
+// overrides of EmailNotificationsEnabled. A kind absent from preferences
+// falls back to that master switch; see [domain.AppUser.WantsNotification].
+func (s *AuthService) UpdateNotificationPreferences(ctx context.Context, userID string, preferences map[domain.NotificationKind]bool) (domain.AppUser, error) {
+	user, err := s.repository.GetUserByID(ctx, userID)
+	if err != nil {
+		return domain.AppUser{}, ErrNotFound
+	}
+	user.NotificationPreferences, user.UpdatedAt = preferences, s.now()
+	if err := s.repository.UpdateUser(ctx, user); err != nil {
+		return domain.AppUser{}, err
+	}
+	return user, nil
+}
+
+// ChangePassword verifies currentPassword, rotates the stored hash to
+// newPassword, and revokes every live refresh token for the user, so a
+// session established under the old password (e.g. on a device that stole a
+// refresh token) cannot silently keep renewing access after the change.
+func (s *AuthService) ChangePassword(ctx context.Context, userID, currentPassword, newPassword string) error {
+	user, err := s.repository.GetUserByID(ctx, userID)
+	if err != nil {
+		return ErrNotFound
+	}
+	if bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(currentPassword)) != nil {
+		return ErrUnauthorized
+	}
+	if len(newPassword) < 12 {
+		return ErrConflict
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("hash password: %w", err)
+	}
+	user.PasswordHash, user.UpdatedAt = string(hash), s.now()
+	if err := s.repository.UpdateUser(ctx, user); err != nil {
+		return err
+	}
+	return s.repository.RevokeAllRefreshTokens(ctx, userID)
 }
 
 // GetProfile returns the current user's profile projection.
@@ -281,7 +376,9 @@ func (s *AuthService) GetProfile(ctx context.Context, userID string) (domain.App
 	return user, nil
 }
 
-// UpdateProfileImage records the object key for the current user's profile image.
+// UpdateProfileImage records the object key for the current user's profile
+// image. A previously stored image is orphaned so the retention sweeper
+// reclaims it.
 func (s *AuthService) UpdateProfileImage(ctx context.Context, userID, objectKey string) (domain.AppUser, error) {
 	user, err := s.repository.GetUserByID(ctx, userID)
 	if err != nil {
@@ -290,9 +387,22 @@ func (s *AuthService) UpdateProfileImage(ctx context.Context, userID, objectKey 
 	if strings.TrimSpace(objectKey) == "" {
 		return domain.AppUser{}, ErrConflict
 	}
+	previousKey := user.ProfileImageObjectKey
 	user.ProfileImageObjectKey, user.UpdatedAt = objectKey, s.now()
 	if err := s.repository.UpdateUser(ctx, user); err != nil {
 		return domain.AppUser{}, err
+	}
+	if s.objectRefs != nil {
+		if err := s.objectRefs.TrackObject(ctx, domain.ObjectReference{
+			ObjectKey: objectKey, OwnerID: userID, ResourceType: ObjectResourceProfileImage, ResourceID: userID,
+		}); err != nil {
+			return domain.AppUser{}, fmt.Errorf("track profile image object: %w", err)
+		}
+		if previousKey != "" && previousKey != objectKey {
+			if err := s.objectRefs.OrphanObjectsFor(ctx, ObjectResourceProfileImage, userID, objectKey); err != nil {
+				return domain.AppUser{}, fmt.Errorf("orphan previous profile image: %w", err)
+			}
+		}
 	}
 	return user, nil
 }
@@ -312,11 +422,35 @@ func (s *AuthService) ManageUser(ctx context.Context, actor domain.AppUser, user
 	if !validRole(role) || role == domain.RoleSuperAdmin {
 		return domain.AppUser{}, ErrConflict
 	}
+	changed := user.Role != role || user.AccessBlocked != blocked
 	user.Role, user.AccessBlocked, user.UpdatedAt = role, blocked, s.now()
 	if err := s.repository.UpdateUser(ctx, user); err != nil {
 		return domain.AppUser{}, err
 	}
+	if changed {
+		if err := s.queueAccessChangedEmail(ctx, user); err != nil {
+			return domain.AppUser{}, fmt.Errorf("queue access changed email: %w", err)
+		}
+	}
 	return user, nil
+}
+
+// queueAccessChangedEmail queues the access-changed notification. Unlike
+// most notification producers this can't sit behind the user's own
+// preference toggle: the whole point is telling someone their access just
+// changed, possibly including being blocked, so honouring an opt-out here
+// would let a blocked user silently miss the one email that explains why.
+func (s *AuthService) queueAccessChangedEmail(ctx context.Context, user domain.AppUser) error {
+	if s.notifications == nil {
+		return nil
+	}
+	payload := map[string]string{
+		"role":    string(user.Role),
+		"blocked": strconv.FormatBool(user.AccessBlocked),
+	}
+	return s.notifications.QueueNotification(ctx, domain.NotificationDelivery{
+		ID: s.ids(), RecipientEmail: user.Email, Kind: domain.NotificationAccessChanged, Payload: payload, CreatedAt: s.now(), Status: domain.NotificationPending,
+	})
 }
 
 // DeleteUser removes a member or administrator but never a super-admin.
@@ -331,7 +465,15 @@ func (s *AuthService) DeleteUser(ctx context.Context, actor domain.AppUser, user
 	if user.Role == domain.RoleSuperAdmin {
 		return ErrForbidden
 	}
-	return s.repository.DeleteUser(ctx, userID)
+	if err := s.repository.DeleteUser(ctx, userID); err != nil {
+		return err
+	}
+	if s.objectRefs != nil {
+		if err := s.objectRefs.OrphanObjectsFor(ctx, ObjectResourceProfileImage, userID, ""); err != nil {
+			return fmt.Errorf("orphan profile image for deleted user: %w", err)
+		}
+	}
+	return nil
 }
 
 func randomToken() (string, error) {

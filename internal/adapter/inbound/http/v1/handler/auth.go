@@ -10,12 +10,13 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/ownerofglory/billpiggy/internal/core/domain"
+	"github.com/ownerofglory/billpiggy/internal/core/port/inbound"
 	"github.com/ownerofglory/billpiggy/internal/core/service"
 	sharedauth "github.com/ownerofglory/billpiggy/pkg/auth"
 )
 
 // RegisterAuthRoutes mounts invitation-only authentication endpoints under the v1 path.
-func RegisterAuthRoutes(router chi.Router, authService *service.AuthService, cookieSecure bool) {
+func RegisterAuthRoutes(router chi.Router, authService inbound.AuthService, cookieSecure bool) {
 	handler := authHandler{service: authService, cookieSecure: cookieSecure}
 	middleware := NewAuthMiddleware(authService)
 	router.Route(basePathV1+"/auth", func(routes chi.Router) {
@@ -31,12 +32,12 @@ func RegisterAuthRoutes(router chi.Router, authService *service.AuthService, coo
 }
 
 // NewAuthMiddleware adapts the application auth service to reusable HTTP middleware.
-func NewAuthMiddleware(authService *service.AuthService) *sharedauth.Middleware {
+func NewAuthMiddleware(authService inbound.AuthService) *sharedauth.Middleware {
 	return sharedauth.NewMiddleware(authenticator{service: authService}, authorizer{})
 }
 
 type authHandler struct {
-	service      *service.AuthService
+	service      inbound.AuthService
 	cookieSecure bool
 }
 
@@ -119,7 +120,7 @@ func (h authHandler) acceptInvitation(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusUnauthorized, "invitation is invalid or expired")
 		return
 	}
-	writeJSON(w, http.StatusCreated, userResponse(user))
+	writeJSON(w, http.StatusCreated, userPublic(user))
 }
 
 // invite creates a new invitation. It requires users:invite permission.
@@ -172,7 +173,7 @@ func (h authHandler) clearRefreshCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{Name: "billpiggy_refresh", Value: "", Path: basePathV1 + "/auth", Expires: time.Unix(0, 0), MaxAge: -1, HttpOnly: true, Secure: h.cookieSecure, SameSite: http.SameSiteStrictMode})
 }
 
-type authenticator struct{ service *service.AuthService }
+type authenticator struct{ service inbound.AuthService }
 
 func (a authenticator) Authenticate(ctx context.Context, token string) (sharedauth.Identity, error) {
 	user, err := a.service.AuthenticateAccessToken(ctx, token)
@@ -188,9 +189,6 @@ func (authorizer) Allows(identity sharedauth.Identity, permission string) bool {
 	return domain.UserRole(identity.Role).Allows(domain.Permission(permission))
 }
 
-func userResponse(user domain.AppUser) userResponseBody {
-	return userResponseBody{ID: user.ID, Email: user.Email, DisplayName: user.DisplayName, Role: string(user.Role), EmailNotificationsEnabled: user.EmailNotificationsEnabled}
-}
 func decodeJSON(w http.ResponseWriter, r *http.Request, target any) bool {
 	if err := json.NewDecoder(r.Body).Decode(target); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "invalid JSON request")
@@ -221,11 +219,13 @@ type invitationRequest struct {
 	Role  domain.UserRole `json:"role"`
 }
 type userResponseBody struct {
-	ID                        string `json:"id"`
-	Email                     string `json:"email"`
-	DisplayName               string `json:"display_name"`
-	Role                      string `json:"role"`
-	EmailNotificationsEnabled bool   `json:"email_notifications_enabled"`
+	ID                        string                           `json:"id"`
+	Email                     string                           `json:"email"`
+	DisplayName               string                           `json:"display_name"`
+	Role                      string                           `json:"role"`
+	EmailNotificationsEnabled bool                             `json:"email_notifications_enabled"`
+	NotificationPreferences   map[domain.NotificationKind]bool `json:"notification_preferences"`
+	AIEnabled                 bool                             `json:"ai_enabled"`
 }
 type currentUserResponse struct {
 	ID    string `json:"id"`

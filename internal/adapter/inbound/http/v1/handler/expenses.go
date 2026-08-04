@@ -8,13 +8,14 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/ownerofglory/billpiggy/internal/core/domain"
+	"github.com/ownerofglory/billpiggy/internal/core/port/inbound"
 	"github.com/ownerofglory/billpiggy/internal/core/port/outbound"
 	"github.com/ownerofglory/billpiggy/internal/core/service"
 	sharedauth "github.com/ownerofglory/billpiggy/pkg/auth"
 )
 
 // RegisterExpenseRoutes mounts authenticated expense CRUD endpoints.
-func RegisterExpenseRoutes(router chi.Router, expenses *service.ExpenseService, middleware *sharedauth.Middleware) {
+func RegisterExpenseRoutes(router chi.Router, expenses inbound.ExpenseService, middleware *sharedauth.Middleware) {
 	h := expenseHandler{service: expenses}
 	router.Route(basePathV1+"/expenses", func(routes chi.Router) {
 		routes.Use(middleware.RequireAuthentication)
@@ -29,7 +30,7 @@ func permission(m *sharedauth.Middleware, p domain.Permission) func(http.Handler
 	return func(next http.Handler) http.Handler { return m.RequirePermission(string(p), next) }
 }
 
-type expenseHandler struct{ service *service.ExpenseService }
+type expenseHandler struct{ service inbound.ExpenseService }
 type expenseRequest struct {
 	Title         string               `json:"title"`
 	AmountMinor   int64                `json:"amount_minor"`
@@ -50,6 +51,11 @@ func (h expenseHandler) owner(r *http.Request) string {
 	identity, _ := sharedauth.IdentityFromContext(r.Context())
 	return identity.Subject
 }
+
+func (h expenseHandler) actor(r *http.Request) domain.AppUser {
+	identity, _ := sharedauth.IdentityFromContext(r.Context())
+	return domain.AppUser{ID: identity.Subject, Role: domain.UserRole(identity.Role)}
+}
 func (h expenseHandler) command(request expenseRequest) service.CreateExpenseCommand {
 	return service.CreateExpenseCommand{Title: request.Title, AmountMinor: request.AmountMinor, Currency: request.Currency, OccurredAt: request.OccurredAt, CategoryID: request.CategoryID, CategoryName: request.CategoryName, TagIDs: request.TagIDs, Status: request.Status, SharedGroupID: request.SharedGroupID, Items: request.Items, Latitude: request.Latitude, Longitude: request.Longitude, Address: request.Address}
 }
@@ -68,7 +74,7 @@ func (h expenseHandler) list(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	limit, _ := strconv.Atoi(query.Get("limit"))
 	offset, _ := strconv.Atoi(query.Get("offset"))
-	values, err := h.service.ListExpenses(r.Context(), outbound.ExpenseListFilter{OwnerID: h.owner(r), Query: query.Get("q"), CategoryID: query.Get("category_id"), TagIDs: query["tag_id"], Limit: limit, Offset: offset})
+	values, err := h.service.ListExpensesForViewer(r.Context(), h.actor(r), outbound.ExpenseListFilter{Query: query.Get("q"), CategoryID: query.Get("category_id"), TagIDs: query["tag_id"], Limit: limit, Offset: offset})
 	if err != nil {
 		writeJSONError(w, 500, "could not list expenses")
 		return
@@ -86,7 +92,7 @@ func (h expenseHandler) list(w http.ResponseWriter, r *http.Request) {
 //	@Failure	404			{object}	map[string]string
 //	@Router		/billpiggy/api/v1/expenses/{expenseID} [get]
 func (h expenseHandler) get(w http.ResponseWriter, r *http.Request) {
-	value, err := h.service.GetExpense(r.Context(), h.owner(r), chi.URLParam(r, "expenseID"))
+	value, err := h.service.GetExpenseForViewer(r.Context(), h.actor(r), chi.URLParam(r, "expenseID"))
 	if err != nil {
 		writeJSONError(w, 404, "expense not found")
 		return

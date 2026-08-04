@@ -16,10 +16,17 @@ state backend. Configure `TF_HTTP_ADDRESS`, `TF_HTTP_USERNAME`, and
 `TF_HTTP_PASSWORD` as `production` Environment secrets. If the backend supports
 locking, also configure `TF_HTTP_LOCK_ADDRESS` and `TF_HTTP_UNLOCK_ADDRESS`.
 
-The workflow additionally requires `POSTGRES_PASSWORD`, `MINIO_ROOT_USER`, and
-`MINIO_ROOT_PASSWORD` Environment secrets, plus the Kubernetes credentials listed in
-the [production deployment guide](../../docs/production-deployment.md). Its `apply`
-action runs only when the `confirm` input is exactly `APPLY`.
+The workflow additionally requires `POSTGRES_PASSWORD`, `MINIO_ROOT_USER`,
+`MINIO_ROOT_PASSWORD`, `MINIO_APP_USER`, and `MINIO_APP_PASSWORD` Environment secrets,
+plus the Kubernetes credentials listed in the
+[production deployment guide](../../docs/production-deployment.md). Its `apply` action
+runs only when the `confirm` input is exactly `APPLY`.
+
+The MinIO release provisions a scoped application user through the chart's built-in
+provisioning job, with a policy limited to the `billpiggy` bucket. Use
+`MINIO_APP_USER`/`MINIO_APP_PASSWORD` — not the root credentials — for the
+application's `MINIO_ACCESS_KEY`/`MINIO_SECRET_KEY`. The root credentials remain
+operator-only.
 
 Optional Environment variables:
 

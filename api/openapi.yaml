@@ -1,5 +1,52 @@
 basePath: /
 definitions:
+  domain.AIUsageSummary:
+    properties:
+      byWorkload:
+        description: ByWorkload lists one entry per workload that made at least one
+          request.
+        items:
+          $ref: '#/definitions/domain.AIWorkloadUsage'
+        type: array
+      since:
+        description: Since is the inclusive start of the summarised window.
+        type: string
+    type: object
+  domain.AIWorkload:
+    enum:
+    - assistant
+    - receipt_extraction
+    - sentence_extraction
+    - transcription
+    type: string
+    x-enum-varnames:
+    - AIWorkloadAssistant
+    - AIWorkloadReceiptExtraction
+    - AIWorkloadSentenceExtraction
+    - AIWorkloadTranscription
+  domain.AIWorkloadUsage:
+    properties:
+      errorCount:
+        description: RequestCount and ErrorCount tally outcomes.
+        format: int64
+        type: integer
+      inputTokens:
+        description: InputTokens and OutputTokens sum token consumption across requests.
+        format: int64
+        type: integer
+      outputTokens:
+        description: InputTokens and OutputTokens sum token consumption across requests.
+        format: int64
+        type: integer
+      requestCount:
+        description: RequestCount and ErrorCount tally outcomes.
+        format: int64
+        type: integer
+      workload:
+        allOf:
+        - $ref: '#/definitions/domain.AIWorkload'
+        description: Workload names the feature these totals belong to.
+    type: object
   domain.AnalyticsPeriod:
     enum:
     - day
@@ -12,6 +59,32 @@ definitions:
     - AnalyticsWeek
     - AnalyticsMonth
     - AnalyticsYear
+  domain.AuditEntry:
+    properties:
+      action:
+        description: Action is the event type that produced the entry.
+        type: string
+      actorID:
+        description: ActorID is the user who caused the event, when known.
+        type: string
+      eventID:
+        description: EventID is the source event, used to make replay idempotent.
+        type: string
+      metadata:
+        additionalProperties:
+          type: string
+        description: Metadata carries additional non-indexed context.
+        type: object
+      occurredAt:
+        description: OccurredAt is when the command produced the event.
+        type: string
+      resourceID:
+        description: ResourceID is the aggregate the event belongs to.
+        type: string
+      resourceType:
+        description: ResourceType is the aggregate type the event belongs to.
+        type: string
+    type: object
   domain.BudgetPeriod:
     enum:
     - daily
@@ -222,6 +295,72 @@ definitions:
         description: Name is the display name.
         type: string
     type: object
+  domain.ExtractedExpense:
+    properties:
+      amount_minor:
+        description: AmountMinor is the total amount in minor currency units.
+        type: integer
+      category_name:
+        description: CategoryName is a free-text category guess.
+        type: string
+      currency:
+        description: Currency is the ISO 4217 currency code.
+        type: string
+      items:
+        description: Items breaks the total down when more than one thing was mentioned.
+        items:
+          $ref: '#/definitions/domain.ExtractedExpenseItem'
+        type: array
+      occurred_at:
+        description: OccurredAt is when the expense happened.
+        type: string
+      title:
+        description: Title is a short human title for the expense.
+        type: string
+    type: object
+  domain.ExtractedExpenseItem:
+    properties:
+      amount_minor:
+        description: AmountMinor is the item's amount in minor currency units.
+        type: integer
+      title:
+        description: Title is what this line item was for.
+        type: string
+    type: object
+  domain.Report:
+    properties:
+      createdAt:
+        description: CreatedAt is when the report was generated.
+        type: string
+      format:
+        allOf:
+        - $ref: '#/definitions/domain.ReportFormat'
+        description: Format is the file format the report was rendered in.
+      id:
+        description: ID identifies the report.
+        type: string
+      objectKey:
+        description: ObjectKey is the report's location in object storage.
+        type: string
+      ownerID:
+        description: OwnerID is the user the report was generated for.
+        type: string
+      periodKind:
+        allOf:
+        - $ref: '#/definitions/domain.AnalyticsPeriod'
+        description: 'PeriodKind is the report''s granularity: week, month, or year.'
+      periodStart:
+        description: PeriodStart is the inclusive start of the reported period.
+        type: string
+    type: object
+  domain.ReportFormat:
+    enum:
+    - csv
+    - pdf
+    type: string
+    x-enum-varnames:
+    - ReportFormatCSV
+    - ReportFormatPDF
   domain.UserGroup:
     properties:
       createdAt:
@@ -285,6 +424,13 @@ definitions:
       threshold_percent:
         type: integer
     type: object
+  handler.changePasswordRequest:
+    properties:
+      current_password:
+        type: string
+      new_password:
+        type: string
+    type: object
   handler.createGroupRequest:
     properties:
       member_ids:
@@ -301,6 +447,13 @@ definitions:
       id:
         type: string
       role:
+        type: string
+    type: object
+  handler.dictateResponse:
+    properties:
+      draft:
+        $ref: '#/definitions/domain.ExtractedExpense'
+      transcript:
         type: string
     type: object
   handler.expenseRequest:
@@ -336,6 +489,11 @@ definitions:
       title:
         type: string
     type: object
+  handler.intelligentRequest:
+    properties:
+      text:
+        type: string
+    type: object
   handler.invitationRequest:
     properties:
       email:
@@ -359,6 +517,8 @@ definitions:
     type: object
   handler.profileRequest:
     properties:
+      ai_enabled:
+        type: boolean
       display_name:
         type: string
       email:
@@ -380,8 +540,15 @@ definitions:
       name:
         type: string
     type: object
+  handler.updateGroupRequest:
+    properties:
+      name:
+        type: string
+    type: object
   handler.userResponseBody:
     properties:
+      ai_enabled:
+        type: boolean
       display_name:
         type: string
       email:
@@ -390,8 +557,43 @@ definitions:
         type: boolean
       id:
         type: string
+      notification_preferences:
+        additionalProperties:
+          type: boolean
+        type: object
       role:
         type: string
+    type: object
+  service.UsageSummary:
+    properties:
+      ai:
+        allOf:
+        - $ref: '#/definitions/domain.AIUsageSummary'
+        description: AI summarises AI provider usage and cost since Since.
+      auditEntryCount:
+        description: |-
+          AuditEntryCount counts audit entries since Since, capped at
+          auditSummaryScanLimit.
+        type: integer
+      blockedUsers:
+        type: integer
+      notificationsByStatus:
+        additionalProperties:
+          type: integer
+        description: NotificationsByStatus tallies the notification queue's current
+          state.
+        type: object
+      since:
+        description: Since is the inclusive start of the summarised window.
+        type: string
+      totalUsers:
+        description: TotalUsers, UsersByRole, and BlockedUsers describe the current
+          account population.
+        type: integer
+      usersByRole:
+        additionalProperties:
+          type: integer
+        type: object
     type: object
 info:
   contact: {}
@@ -399,6 +601,35 @@ info:
   title: BillPiggy API
   version: "1.0"
 paths:
+  /billpiggy/api/v1/admin/usage:
+    get:
+      parameters:
+      - description: RFC3339 inclusive start; defaults to the last 24 hours
+        in: query
+        name: since
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/service.UsageSummary'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get super-admin usage summary
+      tags:
+      - administration
   /billpiggy/api/v1/analytics/expenses:
     get:
       parameters:
@@ -494,6 +725,65 @@ paths:
       summary: Stream an assistant response
       tags:
       - assistant
+  /billpiggy/api/v1/audit:
+    get:
+      parameters:
+      - description: Actor user ID
+        in: query
+        name: actor_id
+        type: string
+      - description: Aggregate type, e.g. expense, budget, user
+        in: query
+        name: resource_type
+        type: string
+      - description: Aggregate ID
+        in: query
+        name: resource_id
+        type: string
+      - description: Event type, e.g. expense_added
+        in: query
+        name: action
+        type: string
+      - description: RFC3339 inclusive start
+        in: query
+        name: from
+        type: string
+      - description: RFC3339 exclusive end
+        in: query
+        name: to
+        type: string
+      - description: Page size, default 50, max 200
+        in: query
+        name: limit
+        type: integer
+      - description: Page offset
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/domain.AuditEntry'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List audit entries
+      tags:
+      - administration
   /billpiggy/api/v1/auth/invitations:
     post:
       consumes:
@@ -861,6 +1151,25 @@ paths:
       tags:
       - expenses
   /billpiggy/api/v1/expenses/{expenseID}/receipt:
+    get:
+      parameters:
+      - description: Expense ID
+        in: path
+        name: expenseID
+        required: true
+        type: string
+      responses:
+        "302":
+          description: Found
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Download expense receipt
+      tags:
+      - expenses
     post:
       consumes:
       - multipart/form-data
@@ -883,6 +1192,121 @@ paths:
           schema:
             $ref: '#/definitions/domain.ExpenseRecord'
       summary: Upload expense receipt
+      tags:
+      - expenses
+  /billpiggy/api/v1/expenses/dictate:
+    post:
+      consumes:
+      - multipart/form-data
+      parameters:
+      - description: Audio recording, maximum 10 MiB
+        in: formData
+        name: file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.dictateResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "503":
+          description: Service Unavailable
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Dictate a draft expense
+      tags:
+      - expenses
+  /billpiggy/api/v1/expenses/intelligent:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Description
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.intelligentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/domain.ExtractedExpense'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "503":
+          description: Service Unavailable
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Parse a sentence into a draft expense
+      tags:
+      - expenses
+  /billpiggy/api/v1/expenses/scan:
+    post:
+      consumes:
+      - multipart/form-data
+      parameters:
+      - description: Receipt image, maximum 10 MiB
+        in: formData
+        name: file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/domain.ExtractedExpense'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "503":
+          description: Service Unavailable
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Scan a receipt into a draft expense
       tags:
       - expenses
   /billpiggy/api/v1/groups/:
@@ -938,6 +1362,174 @@ paths:
       tags:
       - groups
       - administration
+  /billpiggy/api/v1/groups/{groupID}:
+    delete:
+      parameters:
+      - description: Group ID
+        in: path
+        name: groupID
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete group
+      tags:
+      - groups
+      - administration
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Group ID
+        in: path
+        name: groupID
+        required: true
+        type: string
+      - description: Group
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.updateGroupRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/domain.UserGroup'
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update group
+      tags:
+      - groups
+      - administration
+  /billpiggy/api/v1/groups/{groupID}/members/{userID}:
+    delete:
+      parameters:
+      - description: Group ID
+        in: path
+        name: groupID
+        required: true
+        type: string
+      - description: User ID
+        in: path
+        name: userID
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Remove group member
+      tags:
+      - groups
+      - administration
+    post:
+      parameters:
+      - description: Group ID
+        in: path
+        name: groupID
+        required: true
+        type: string
+      - description: User ID
+        in: path
+        name: userID
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Add group member
+      tags:
+      - groups
+      - administration
+  /billpiggy/api/v1/reports:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/domain.Report'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List generated reports
+      tags:
+      - reports
+  /billpiggy/api/v1/reports/{reportID}/download:
+    get:
+      parameters:
+      - description: Report ID
+        in: path
+        name: reportID
+        required: true
+        type: string
+      responses:
+        "302":
+          description: Found
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Download a generated report
+      tags:
+      - reports
   /billpiggy/api/v1/taxonomy/categories:
     get:
       produces:
@@ -972,6 +1564,57 @@ paths:
       summary: Create category
       tags:
       - taxonomy
+  /billpiggy/api/v1/taxonomy/categories/{categoryID}:
+    delete:
+      parameters:
+      - description: Category ID
+        in: path
+        name: categoryID
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete category
+      tags:
+      - taxonomy
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Category ID
+        in: path
+        name: categoryID
+        required: true
+        type: string
+      - description: Category
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.taxonomyRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/domain.ExpenseCategory'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update category
+      tags:
+      - taxonomy
   /billpiggy/api/v1/taxonomy/tags:
     get:
       produces:
@@ -1004,6 +1647,57 @@ paths:
           schema:
             $ref: '#/definitions/domain.ExpenseTag'
       summary: Create tag
+      tags:
+      - taxonomy
+  /billpiggy/api/v1/taxonomy/tags/{tagID}:
+    delete:
+      parameters:
+      - description: Tag ID
+        in: path
+        name: tagID
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete tag
+      tags:
+      - taxonomy
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Tag ID
+        in: path
+        name: tagID
+        required: true
+        type: string
+      - description: Tag
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.taxonomyRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/domain.ExpenseTag'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update tag
       tags:
       - taxonomy
   /billpiggy/api/v1/users/:
@@ -1071,6 +1765,59 @@ paths:
       summary: Manage user
       tags:
       - administration
+  /billpiggy/api/v1/users/me/notification-preferences:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Per-kind overrides, keyed by notification kind (invitation, budget_alert,
+          report_ready, access_changed)
+        in: body
+        name: request
+        required: true
+        schema:
+          additionalProperties:
+            type: boolean
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.userResponseBody'
+      summary: Update notification preferences
+      tags:
+      - users
+  /billpiggy/api/v1/users/me/password:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Passwords
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.changePasswordRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Change password
+      tags:
+      - users
   /billpiggy/api/v1/users/me/profile:
     get:
       produces:
@@ -1104,6 +1851,19 @@ paths:
       tags:
       - users
   /billpiggy/api/v1/users/me/profile-image:
+    get:
+      responses:
+        "302":
+          description: Found
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Download profile image
+      tags:
+      - users
     post:
       consumes:
       - multipart/form-data

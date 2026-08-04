@@ -7,13 +7,13 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/ownerofglory/billpiggy/internal/core/domain"
+	"github.com/ownerofglory/billpiggy/internal/core/port/inbound"
 	"github.com/ownerofglory/billpiggy/internal/core/port/outbound"
-	"github.com/ownerofglory/billpiggy/internal/core/service"
 	sharedauth "github.com/ownerofglory/billpiggy/pkg/auth"
 )
 
 // RegisterAnalyticsRoutes mounts authenticated analytics read endpoints.
-func RegisterAnalyticsRoutes(router chi.Router, analytics *service.AnalyticsService, middleware *sharedauth.Middleware) {
+func RegisterAnalyticsRoutes(router chi.Router, analytics inbound.AnalyticsService, middleware *sharedauth.Middleware) {
 	h := analyticsHandler{service: analytics}
 	router.Route(basePathV1+"/analytics", func(routes chi.Router) {
 		routes.Use(middleware.RequireAuthentication, permission(middleware, domain.PermissionAnalyticsRead))
@@ -40,7 +40,7 @@ func (h analyticsHandler) listSuggestions(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, values)
 }
 
-type analyticsHandler struct{ service *service.AnalyticsService }
+type analyticsHandler struct{ service inbound.AnalyticsService }
 
 // listExpenses returns category or tag spending grouped by a requested period.
 //

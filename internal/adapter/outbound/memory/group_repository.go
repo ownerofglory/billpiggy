@@ -38,6 +38,76 @@ func (r *GroupRepository) ListVisibleGroups(_ context.Context, viewer string, su
 	}
 	return out, nil
 }
+
+// GetGroup returns one group regardless of visibility.
+func (r *GroupRepository) GetGroup(_ context.Context, groupID string) (domain.UserGroup, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	g, ok := r.groups[groupID]
+	if !ok {
+		return domain.UserGroup{}, errNotFound
+	}
+	return g, nil
+}
+
+// UpdateGroup renames a group.
+func (r *GroupRepository) UpdateGroup(_ context.Context, groupID, name string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	g, ok := r.groups[groupID]
+	if !ok {
+		return errNotFound
+	}
+	g.Name = name
+	r.groups[groupID] = g
+	return nil
+}
+
+// DeleteGroup removes a group and its memberships.
+func (r *GroupRepository) DeleteGroup(_ context.Context, groupID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.groups[groupID]; !ok {
+		return errNotFound
+	}
+	delete(r.groups, groupID)
+	return nil
+}
+
+// AddMember adds a member, or does nothing if already a member.
+func (r *GroupRepository) AddMember(_ context.Context, groupID, userID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	g, ok := r.groups[groupID]
+	if !ok {
+		return errNotFound
+	}
+	if hasMember(g.MemberIDs, userID) {
+		return nil
+	}
+	g.MemberIDs = append(append([]string(nil), g.MemberIDs...), userID)
+	r.groups[groupID] = g
+	return nil
+}
+
+// RemoveMember removes a member, or does nothing if not a member.
+func (r *GroupRepository) RemoveMember(_ context.Context, groupID, userID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	g, ok := r.groups[groupID]
+	if !ok {
+		return errNotFound
+	}
+	members := make([]string, 0, len(g.MemberIDs))
+	for _, id := range g.MemberIDs {
+		if id != userID {
+			members = append(members, id)
+		}
+	}
+	g.MemberIDs = members
+	r.groups[groupID] = g
+	return nil
+}
 func hasMember(ids []string, id string) bool {
 	for _, value := range ids {
 		if value == id {

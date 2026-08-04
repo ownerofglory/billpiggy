@@ -37,6 +37,8 @@ jobs:
       TF_VAR_postgres_password: ${{ secrets.POSTGRES_PASSWORD }}
       TF_VAR_minio_root_user: ${{ secrets.MINIO_ROOT_USER }}
       TF_VAR_minio_root_password: ${{ secrets.MINIO_ROOT_PASSWORD }}
+      TF_VAR_minio_app_user: ${{ secrets.MINIO_APP_USER }}
+      TF_VAR_minio_app_password: ${{ secrets.MINIO_APP_PASSWORD }}
       TF_VAR_namespace: ${{ vars.INFRASTRUCTURE_NAMESPACE || 'billpiggy-infra' }}
       TF_VAR_storage_class: ${{ vars.K3S_STORAGE_CLASS || 'local-path' }}
     steps:

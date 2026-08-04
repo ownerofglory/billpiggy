@@ -29,6 +29,34 @@ func (r *TaxonomyRepository) CreateCategory(_ context.Context, owner string, val
 	r.categories[owner] = append(r.categories[owner], value)
 	return nil
 }
+
+// UpdateCategory renames or recolors an owner-specific category. A default
+// category is never in r.categories[owner], so it can never match here.
+func (r *TaxonomyRepository) UpdateCategory(_ context.Context, owner string, category domain.ExpenseCategory) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i, value := range r.categories[owner] {
+		if value.ID == category.ID {
+			r.categories[owner][i].Name, r.categories[owner][i].Color = category.Name, category.Color
+			return nil
+		}
+	}
+	return errNotFound
+}
+
+// DeleteCategory removes an owner-specific category.
+func (r *TaxonomyRepository) DeleteCategory(_ context.Context, owner, categoryID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i, value := range r.categories[owner] {
+		if value.ID == categoryID {
+			r.categories[owner] = append(r.categories[owner][:i], r.categories[owner][i+1:]...)
+			return nil
+		}
+	}
+	return errNotFound
+}
+
 func (r *TaxonomyRepository) ListTags(_ context.Context, owner string) ([]domain.ExpenseTag, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -39,6 +67,32 @@ func (r *TaxonomyRepository) CreateTag(_ context.Context, owner string, value do
 	defer r.mu.Unlock()
 	r.tags[owner] = append(r.tags[owner], value)
 	return nil
+}
+
+// UpdateTag renames or recolors an owner-specific tag.
+func (r *TaxonomyRepository) UpdateTag(_ context.Context, owner string, tag domain.ExpenseTag) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i, value := range r.tags[owner] {
+		if value.ID == tag.ID {
+			r.tags[owner][i].Name, r.tags[owner][i].Color = tag.Name, tag.Color
+			return nil
+		}
+	}
+	return errNotFound
+}
+
+// DeleteTag removes an owner-specific tag.
+func (r *TaxonomyRepository) DeleteTag(_ context.Context, owner, tagID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i, value := range r.tags[owner] {
+		if value.ID == tagID {
+			r.tags[owner] = append(r.tags[owner][:i], r.tags[owner][i+1:]...)
+			return nil
+		}
+	}
+	return errNotFound
 }
 
 // Snapshot copies the stored taxonomy and returns a function restoring it.

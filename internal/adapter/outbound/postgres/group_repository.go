@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/ownerofglory/billpiggy/internal/core/domain"
 	"github.com/ownerofglory/billpiggy/pkg/pgxtx"
@@ -55,6 +56,58 @@ func (r *GroupRepository) ListVisibleGroups(ctx context.Context, viewer string, 
 		return nil, err
 	}
 	return groups, nil
+}
+
+// GetGroup returns one group regardless of visibility.
+func (r *GroupRepository) GetGroup(ctx context.Context, groupID string) (domain.UserGroup, error) {
+	querier := pgxtx.From(ctx, r.pool)
+	var g domain.UserGroup
+	if err := querier.QueryRow(ctx, `select id::text,name,created_by::text,created_at from identity.groups where id=$1`, groupID).Scan(&g.ID, &g.Name, &g.CreatedBy, &g.CreatedAt); err != nil {
+		return domain.UserGroup{}, err
+	}
+	groups := []domain.UserGroup{g}
+	if err := loadGroupMembers(ctx, querier, groups); err != nil {
+		return domain.UserGroup{}, err
+	}
+	return groups[0], nil
+}
+
+// UpdateGroup renames a group.
+func (r *GroupRepository) UpdateGroup(ctx context.Context, groupID, name string) error {
+	command, err := pgxtx.From(ctx, r.pool).Exec(ctx, `update identity.groups set name=$2 where id=$1`, groupID, name)
+	if err != nil {
+		return err
+	}
+	if command.RowsAffected() != 1 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
+
+// DeleteGroup removes a group; ON DELETE CASCADE removes its memberships.
+// Fails with a foreign-key violation if any expense or budget still shares
+// with it.
+func (r *GroupRepository) DeleteGroup(ctx context.Context, groupID string) error {
+	command, err := pgxtx.From(ctx, r.pool).Exec(ctx, `delete from identity.groups where id=$1`, groupID)
+	if err != nil {
+		return err
+	}
+	if command.RowsAffected() != 1 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
+
+// AddMember adds a member, or does nothing if already a member.
+func (r *GroupRepository) AddMember(ctx context.Context, groupID, userID string) error {
+	_, err := pgxtx.From(ctx, r.pool).Exec(ctx, `insert into identity.group_members(group_id,user_id) values($1,$2) on conflict (group_id,user_id) do nothing`, groupID, userID)
+	return err
+}
+
+// RemoveMember removes a member, or does nothing if not a member.
+func (r *GroupRepository) RemoveMember(ctx context.Context, groupID, userID string) error {
+	_, err := pgxtx.From(ctx, r.pool).Exec(ctx, `delete from identity.group_members where group_id=$1 and user_id=$2`, groupID, userID)
+	return err
 }
 
 // loadGroupMembers attaches member identifiers to already-scanned groups.
