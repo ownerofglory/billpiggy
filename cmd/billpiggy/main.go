@@ -200,6 +200,30 @@ func main() {
 			WithModel(cfg.OpenAIAssistantModel).
 			WithLimiter(adapters.newLimiter(assistantRateLimit, assistantRateInterval))
 	}
+	var intakeService *service.ExpenseIntakeService
+	if cfg.OpenAIAPIKey != "" {
+		client, err := openaiadapter.NewClient(cfg.OpenAIAPIKey, openaiadapter.WithBaseURL(cfg.OpenAIBaseURL), openaiadapter.WithLogger(slog.Default()))
+		if err != nil {
+			slog.Error("configure OpenAI client for expense intake", "error", err)
+			os.Exit(1)
+		}
+		auditedProvider, err := service.NewAuditedAIProvider(client, adapters.aiRequests, domain.AIWorkloadReceiptExtraction)
+		if err != nil {
+			slog.Error("configure AI request auditing", "error", err)
+			os.Exit(1)
+		}
+		auditedTranscriber, err := service.NewAuditedAudioTranscriber(client, adapters.aiRequests)
+		if err != nil {
+			slog.Error("configure transcription auditing", "error", err)
+			os.Exit(1)
+		}
+		intakeService, err = service.NewExpenseIntakeService(auditedProvider, auditedTranscriber)
+		if err != nil {
+			slog.Error("configure expense intake", "error", err)
+			os.Exit(1)
+		}
+		intakeService = intakeService.WithLimiter(adapters.newLimiter(service.IntakeRateLimit, service.IntakeRateInterval))
+	}
 
 	// HTTP handler setup
 	r.Get(handler.GetVersionPath, handler.HandleGetVersion)
@@ -207,6 +231,7 @@ func main() {
 	handler.RegisterUserRoutes(r, authService, handler.NewAuthMiddleware(authService))
 	handler.RegisterUploadRoutes(r, authService, expenseService, objectStore, handler.NewAuthMiddleware(authService))
 	handler.RegisterExpenseRoutes(r, expenseService, handler.NewAuthMiddleware(authService))
+	handler.RegisterExpenseIntakeRoutes(r, intakeService, authService, handler.NewAuthMiddleware(authService))
 	handler.RegisterBudgetRoutes(r, budgetService, handler.NewAuthMiddleware(authService))
 	handler.RegisterAnalyticsRoutes(r, analyticsService, handler.NewAuthMiddleware(authService))
 	handler.RegisterTaxonomyRoutes(r, taxonomyService, handler.NewAuthMiddleware(authService))

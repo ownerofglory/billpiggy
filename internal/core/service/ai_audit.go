@@ -72,6 +72,38 @@ func (p *AuditedAIProvider) Stream(ctx context.Context, request domain.Completio
 	return audited, nil
 }
 
+// AuditedAudioTranscriber wraps an AudioTranscriber and records every call to
+// AIRequestRepository under the transcription workload.
+type AuditedAudioTranscriber struct {
+	transcriber outbound.AudioTranscriber
+	requests    outbound.AIRequestRepository
+	ids         func() string
+	now         func() time.Time
+}
+
+// NewAuditedAudioTranscriber creates an auditing decorator around transcriber.
+func NewAuditedAudioTranscriber(transcriber outbound.AudioTranscriber, requests outbound.AIRequestRepository) (*AuditedAudioTranscriber, error) {
+	if transcriber == nil || requests == nil {
+		return nil, errors.New("audio transcriber and AI request repository are required")
+	}
+	return &AuditedAudioTranscriber{transcriber: transcriber, requests: requests, ids: uuid.NewString, now: time.Now}, nil
+}
+
+// Transcribe calls the wrapped transcriber and records the outcome.
+func (t *AuditedAudioTranscriber) Transcribe(ctx context.Context, request domain.TranscriptionRequest) (domain.Transcription, error) {
+	start := t.now()
+	result, err := t.transcriber.Transcribe(ctx, request)
+	outcome, message := domain.AIRequestSuccess, ""
+	if err != nil {
+		outcome, message = domain.AIRequestError, err.Error()
+	}
+	_ = t.requests.RecordRequest(ctx, domain.AIRequestRecord{
+		ID: t.ids(), UserID: request.UserID, Workload: domain.AIWorkloadTranscription, Model: request.Model,
+		Usage: result.Usage, LatencyMS: t.now().Sub(start).Milliseconds(), Outcome: outcome, ErrorMessage: message, CreatedAt: t.now(),
+	})
+	return result, err
+}
+
 // record writes one AI request audit entry. A recording failure is swallowed
 // rather than surfaced: the AI answer has already succeeded or failed on its
 // own terms, and core services deliberately have no logger to report through.
