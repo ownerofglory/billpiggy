@@ -55,17 +55,19 @@ type AIRequestRecord struct {
 // AIWorkloadUsage summarises requests for one workload since a query's start time.
 type AIWorkloadUsage struct {
 	// Workload names the feature these totals belong to.
-	Workload AIWorkload
+	Workload AIWorkload `json:"workload"`
 	// RequestCount and ErrorCount tally outcomes.
-	RequestCount, ErrorCount int64
+	RequestCount int64 `json:"requestCount"`
+	ErrorCount   int64 `json:"errorCount"`
 	// InputTokens and OutputTokens sum token consumption across requests.
-	InputTokens, OutputTokens int64
+	InputTokens  int64 `json:"inputTokens"`
+	OutputTokens int64 `json:"outputTokens"`
 }
 
 // AIUsageSummary aggregates AI request records by workload for a time window.
 type AIUsageSummary struct {
 	// Since is the inclusive start of the summarised window.
-	Since time.Time
+	Since time.Time `json:"since"`
 	// ByWorkload lists one entry per workload that made at least one request.
-	ByWorkload []AIWorkloadUsage
+	ByWorkload []AIWorkloadUsage `json:"byWorkload"`
 }

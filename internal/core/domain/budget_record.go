@@ -21,19 +21,25 @@ const (
 // BudgetRecord is the budget projection stored in minor currency units.
 type BudgetRecord struct {
 	// ID identifies the budget.
-	ID, OwnerID, CategoryID, Name, Currency, SharedGroupID string
+	ID            string `json:"id"`
+	OwnerID       string `json:"ownerID"`
+	CategoryID    string `json:"categoryID"`
+	Name          string `json:"name"`
+	Currency      string `json:"currency"`
+	SharedGroupID string `json:"sharedGroupID"`
 	// AmountLimitMinor is the limit in the currency's minor units.
-	AmountLimitMinor int64
+	AmountLimitMinor int64 `json:"amountLimitMinor"`
 	// ThresholdPercent triggers an alert when this percentage is reached.
-	ThresholdPercent int
+	ThresholdPercent int `json:"thresholdPercent"`
 	// Period defines the budget window.
-	Period BudgetPeriod
+	Period BudgetPeriod `json:"period"`
 	// DueAt optionally caps a custom budget.
-	DueAt *time.Time
+	DueAt *time.Time `json:"dueAt"`
 	// CreatedAt and UpdatedAt record projection timestamps.
-	CreatedAt, UpdatedAt time.Time
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 	// DeletedAt marks a soft-deleted budget.
-	DeletedAt *time.Time
+	DeletedAt *time.Time `json:"deletedAt"`
 }
 
 // BudgetCreated records creation of a category-scoped budget.

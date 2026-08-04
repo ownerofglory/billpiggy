@@ -15,19 +15,19 @@ const (
 // Report is a generated periodic expense report stored in object storage.
 type Report struct {
 	// ID identifies the report.
-	ID string
+	ID string `json:"id"`
 	// OwnerID is the user the report was generated for.
-	OwnerID string
+	OwnerID string `json:"ownerID"`
 	// PeriodKind is the report's granularity: week, month, or year.
-	PeriodKind AnalyticsPeriod
+	PeriodKind AnalyticsPeriod `json:"periodKind"`
 	// PeriodStart is the inclusive start of the reported period.
-	PeriodStart time.Time
+	PeriodStart time.Time `json:"periodStart"`
 	// Format is the file format the report was rendered in.
-	Format ReportFormat
+	Format ReportFormat `json:"format"`
 	// ObjectKey is the report's location in object storage.
-	ObjectKey string
+	ObjectKey string `json:"objectKey"`
 	// CreatedAt is when the report was generated.
-	CreatedAt time.Time
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 // ReportPeriods lists the granularities periodic reports are generated for.

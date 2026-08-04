@@ -17,18 +17,18 @@ const auditSummaryScanLimit = 10000
 // activity for the super-admin usage dashboard.
 type UsageSummary struct {
 	// Since is the inclusive start of the summarised window.
-	Since time.Time
+	Since time.Time `json:"since"`
 	// TotalUsers, UsersByRole, and BlockedUsers describe the current account population.
-	TotalUsers   int
-	UsersByRole  map[domain.UserRole]int
-	BlockedUsers int
+	TotalUsers   int                     `json:"totalUsers"`
+	UsersByRole  map[domain.UserRole]int `json:"usersByRole"`
+	BlockedUsers int                     `json:"blockedUsers"`
 	// AI summarises AI provider usage and cost since Since.
-	AI domain.AIUsageSummary
+	AI domain.AIUsageSummary `json:"ai"`
 	// NotificationsByStatus tallies the notification queue's current state.
-	NotificationsByStatus map[domain.NotificationStatus]int
+	NotificationsByStatus map[domain.NotificationStatus]int `json:"notificationsByStatus"`
 	// AuditEntryCount counts audit entries since Since, capped at
 	// auditSummaryScanLimit.
-	AuditEntryCount int
+	AuditEntryCount int `json:"auditEntryCount"`
 }
 
 // AdminUsageService assembles the super-admin usage summary from several

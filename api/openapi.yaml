@@ -27,20 +27,14 @@ definitions:
   domain.AIWorkloadUsage:
     properties:
       errorCount:
-        description: RequestCount and ErrorCount tally outcomes.
-        format: int64
         type: integer
       inputTokens:
         description: InputTokens and OutputTokens sum token consumption across requests.
-        format: int64
         type: integer
       outputTokens:
-        description: InputTokens and OutputTokens sum token consumption across requests.
-        format: int64
         type: integer
       requestCount:
         description: RequestCount and ErrorCount tally outcomes.
-        format: int64
         type: integer
       workload:
         allOf:
@@ -103,16 +97,13 @@ definitions:
     properties:
       amountLimitMinor:
         description: AmountLimitMinor is the limit in the currency's minor units.
-        format: int64
         type: integer
       categoryID:
-        description: ID identifies the budget.
         type: string
       createdAt:
         description: CreatedAt and UpdatedAt record projection timestamps.
         type: string
       currency:
-        description: ID identifies the budget.
         type: string
       deletedAt:
         description: DeletedAt marks a soft-deleted budget.
@@ -124,23 +115,19 @@ definitions:
         description: ID identifies the budget.
         type: string
       name:
-        description: ID identifies the budget.
         type: string
       ownerID:
-        description: ID identifies the budget.
         type: string
       period:
         allOf:
         - $ref: '#/definitions/domain.BudgetPeriod'
         description: Period defines the budget window.
       sharedGroupID:
-        description: ID identifies the budget.
         type: string
       thresholdPercent:
         description: ThresholdPercent triggers an alert when this percentage is reached.
         type: integer
       updatedAt:
-        description: CreatedAt and UpdatedAt record projection timestamps.
         type: string
     type: object
   domain.BudgetSuggestion:
@@ -152,14 +139,12 @@ definitions:
       currency:
         type: string
       limitMinor:
-        format: int64
         type: integer
       message:
         type: string
       percentUsed:
         type: integer
       spentMinor:
-        format: int64
         type: integer
     type: object
   domain.ExpenseCategory:
@@ -183,7 +168,6 @@ definitions:
   domain.ExpenseItem:
     properties:
       amountMinor:
-        format: int64
         type: integer
       quantity:
         type: string
@@ -195,7 +179,6 @@ definitions:
       address:
         type: string
       amountMinor:
-        format: int64
         type: integer
       categoryID:
         type: string
@@ -214,10 +197,8 @@ definitions:
           $ref: '#/definitions/domain.ExpenseItem'
         type: array
       latitude:
-        format: float64
         type: number
       longitude:
-        format: float64
         type: number
       occurredAt:
         type: string
@@ -242,7 +223,6 @@ definitions:
     properties:
       amountMinor:
         description: AmountMinor is the aggregate in currency minor units.
-        format: int64
         type: integer
       categoryID:
         description: CategoryID optionally identifies the aggregated category.
@@ -252,7 +232,6 @@ definitions:
         type: string
       expenseCount:
         description: ExpenseCount is the number of included expenses.
-        format: int64
         type: integer
       ownerID:
         description: OwnerID identifies the user whose expenses were aggregated.
