@@ -47,6 +47,24 @@ func (r *TaxonomyRepository) CreateCategory(ctx context.Context, owner string, v
 	return nil
 }
 
+// UpdateCategory writes through and invalidates the owner's cached list.
+func (r *TaxonomyRepository) UpdateCategory(ctx context.Context, owner string, category domain.ExpenseCategory) error {
+	if err := r.inner.UpdateCategory(ctx, owner, category); err != nil {
+		return err
+	}
+	r.categories.Invalidate(owner)
+	return nil
+}
+
+// DeleteCategory writes through and invalidates the owner's cached list.
+func (r *TaxonomyRepository) DeleteCategory(ctx context.Context, owner, categoryID string) error {
+	if err := r.inner.DeleteCategory(ctx, owner, categoryID); err != nil {
+		return err
+	}
+	r.categories.Invalidate(owner)
+	return nil
+}
+
 // ListTags returns the cached list when present, otherwise loads and caches it.
 func (r *TaxonomyRepository) ListTags(ctx context.Context, owner string) ([]domain.ExpenseTag, error) {
 	if values, ok := r.tags.Get(owner); ok {
@@ -63,6 +81,24 @@ func (r *TaxonomyRepository) ListTags(ctx context.Context, owner string) ([]doma
 // CreateTag writes through and invalidates the owner's cached list.
 func (r *TaxonomyRepository) CreateTag(ctx context.Context, owner string, value domain.ExpenseTag) error {
 	if err := r.inner.CreateTag(ctx, owner, value); err != nil {
+		return err
+	}
+	r.tags.Invalidate(owner)
+	return nil
+}
+
+// UpdateTag writes through and invalidates the owner's cached list.
+func (r *TaxonomyRepository) UpdateTag(ctx context.Context, owner string, tag domain.ExpenseTag) error {
+	if err := r.inner.UpdateTag(ctx, owner, tag); err != nil {
+		return err
+	}
+	r.tags.Invalidate(owner)
+	return nil
+}
+
+// DeleteTag writes through and invalidates the owner's cached list.
+func (r *TaxonomyRepository) DeleteTag(ctx context.Context, owner, tagID string) error {
+	if err := r.inner.DeleteTag(ctx, owner, tagID); err != nil {
 		return err
 	}
 	r.tags.Invalidate(owner)

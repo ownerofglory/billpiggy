@@ -155,7 +155,7 @@ func main() {
 		slog.Error("configure expenses", "error", err)
 		os.Exit(1)
 	}
-	expenseService = expenseService.WithObjectReferences(adapters.objectRefs)
+	expenseService = expenseService.WithObjectReferences(adapters.objectRefs).WithGroups(adapters.groups).WithTaxonomy(adapters.taxonomy)
 	groupService, err := service.NewGroupService(adapters.groups)
 	if err != nil {
 		slog.Error("configure groups", "error", err)

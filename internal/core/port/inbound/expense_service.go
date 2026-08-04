@@ -17,5 +17,7 @@ type ExpenseService interface {
 	DeleteExpense(ctx context.Context, ownerID, expenseID string) error
 	ListExpenses(ctx context.Context, filter outbound.ExpenseListFilter) ([]domain.ExpenseRecord, error)
 	GetExpense(ctx context.Context, ownerID, expenseID string) (domain.ExpenseRecord, error)
+	ListExpensesForViewer(ctx context.Context, viewer domain.AppUser, filter outbound.ExpenseListFilter) ([]domain.ExpenseRecord, error)
+	GetExpenseForViewer(ctx context.Context, viewer domain.AppUser, expenseID string) (domain.ExpenseRecord, error)
 	AttachReceipt(ctx context.Context, ownerID, expenseID, objectKey string) (domain.ExpenseRecord, error)
 }

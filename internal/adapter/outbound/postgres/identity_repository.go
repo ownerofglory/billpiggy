@@ -181,6 +181,12 @@ func (r *IdentityRepository) RevokeRefreshToken(ctx context.Context, tokenID str
 	return err
 }
 
+// RevokeAllRefreshTokens revokes every live refresh token for userID.
+func (r *IdentityRepository) RevokeAllRefreshTokens(ctx context.Context, userID string) error {
+	_, err := pgxtx.From(ctx, r.pool).Exec(ctx, `update identity.refresh_tokens set revoked_at = now() where user_id = $1 and revoked_at is null`, userID)
+	return err
+}
+
 func hashBytes(value string) []byte {
 	decoded, err := hex.DecodeString(value)
 	if err != nil {

@@ -23,4 +23,8 @@ type IdentityRepository interface {
 	CreateRefreshToken(ctx context.Context, token domain.RefreshToken) error
 	RotateRefreshToken(ctx context.Context, oldTokenID string, replacement domain.RefreshToken) error
 	RevokeRefreshToken(ctx context.Context, tokenID string) error
+	// RevokeAllRefreshTokens revokes every live refresh token for userID, used
+	// after a password change so a stolen or leaked refresh token stops
+	// working immediately rather than surviving until it next expires.
+	RevokeAllRefreshTokens(ctx context.Context, userID string) error
 }

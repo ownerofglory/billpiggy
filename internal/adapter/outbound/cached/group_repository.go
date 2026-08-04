@@ -49,3 +49,46 @@ func (r *GroupRepository) CreateGroup(ctx context.Context, group domain.UserGrou
 	r.groups.Clear()
 	return nil
 }
+
+// GetGroup delegates uncached: it is used for one-off access-policy checks,
+// not the read-heavy path ListVisibleGroups caches.
+func (r *GroupRepository) GetGroup(ctx context.Context, groupID string) (domain.UserGroup, error) {
+	return r.inner.GetGroup(ctx, groupID)
+}
+
+// UpdateGroup writes through and clears every cached list.
+func (r *GroupRepository) UpdateGroup(ctx context.Context, groupID, name string) error {
+	if err := r.inner.UpdateGroup(ctx, groupID, name); err != nil {
+		return err
+	}
+	r.groups.Clear()
+	return nil
+}
+
+// DeleteGroup writes through and clears every cached list.
+func (r *GroupRepository) DeleteGroup(ctx context.Context, groupID string) error {
+	if err := r.inner.DeleteGroup(ctx, groupID); err != nil {
+		return err
+	}
+	r.groups.Clear()
+	return nil
+}
+
+// AddMember writes through and clears every cached list: the new member's
+// visible set now includes this group.
+func (r *GroupRepository) AddMember(ctx context.Context, groupID, userID string) error {
+	if err := r.inner.AddMember(ctx, groupID, userID); err != nil {
+		return err
+	}
+	r.groups.Clear()
+	return nil
+}
+
+// RemoveMember writes through and clears every cached list.
+func (r *GroupRepository) RemoveMember(ctx context.Context, groupID, userID string) error {
+	if err := r.inner.RemoveMember(ctx, groupID, userID); err != nil {
+		return err
+	}
+	r.groups.Clear()
+	return nil
+}

@@ -20,6 +20,7 @@ func RegisterUserRoutes(router chi.Router, auth inbound.AuthService, middleware 
 		routes.Get("/me/profile", h.profile)
 		routes.Put("/me/profile", h.updateProfile)
 		routes.Put("/me/notification-preferences", h.updateNotificationPreferences)
+		routes.Post("/me/password", h.changePassword)
 		routes.With(permission(middleware, domain.PermissionUsersManage)).Get("/", h.list)
 		routes.With(permission(middleware, domain.PermissionUsersManage)).Put("/{userID}", h.manage)
 		routes.With(permission(middleware, domain.PermissionUsersManage)).Delete("/{userID}", h.delete)
@@ -109,6 +110,40 @@ func (h userHandler) updateNotificationPreferences(w http.ResponseWriter, r *htt
 		return
 	}
 	writeJSON(w, 200, userPublic(user))
+}
+
+// changePasswordRequest carries the current and new password.
+type changePasswordRequest struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
+}
+
+// changePassword verifies the current password, sets a new one, and revokes
+// every other live session so a leaked refresh token stops working.
+//
+//	@Summary	Change password
+//	@Tags		users
+//	@Accept		json
+//	@Param		request	body	changePasswordRequest	true	"Passwords"
+//	@Success	204
+//	@Failure	400	{object}	map[string]string
+//	@Failure	401	{object}	map[string]string
+//	@Router		/billpiggy/api/v1/users/me/password [post]
+func (h userHandler) changePassword(w http.ResponseWriter, r *http.Request) {
+	var req changePasswordRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	err := h.service.ChangePassword(r.Context(), h.actor(r).ID, req.CurrentPassword, req.NewPassword)
+	if errors.Is(err, service.ErrUnauthorized) {
+		writeJSONError(w, http.StatusUnauthorized, "current password is incorrect")
+		return
+	}
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, "password could not be changed")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // list returns all users to an administrator.

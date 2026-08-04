@@ -82,3 +82,45 @@ func newAuthService(t *testing.T, repository *memory.IdentityRepository) *servic
 	}
 	return auth
 }
+
+func TestAuthServiceChangePassword(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	repository := memory.NewIdentityRepository()
+	auth := newAuthService(t, repository)
+	if err := auth.EnsureBootstrapSuperAdmin(ctx); err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+	admin, err := repository.GetUserByEmail(ctx, "owner@example.com")
+	if err != nil {
+		t.Fatalf("get admin: %v", err)
+	}
+
+	session, err := auth.Login(ctx, "owner@example.com", "super-admin-password")
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+
+	if err := auth.ChangePassword(ctx, admin.ID, "wrong-current-password", "a-new-strong-password"); err != service.ErrUnauthorized {
+		t.Fatalf("change with wrong current password: err = %v, want ErrUnauthorized", err)
+	}
+	if err := auth.ChangePassword(ctx, admin.ID, "super-admin-password", "short"); err != service.ErrConflict {
+		t.Fatalf("change to a too-short password: err = %v, want ErrConflict", err)
+	}
+	if err := auth.ChangePassword(ctx, admin.ID, "super-admin-password", "a-new-strong-password"); err != nil {
+		t.Fatalf("change password: %v", err)
+	}
+
+	// The old password no longer works; the new one does.
+	if _, err := auth.Login(ctx, "owner@example.com", "super-admin-password"); err != service.ErrUnauthorized {
+		t.Fatalf("login with old password: err = %v, want ErrUnauthorized", err)
+	}
+	if _, err := auth.Login(ctx, "owner@example.com", "a-new-strong-password"); err != nil {
+		t.Fatalf("login with new password: %v", err)
+	}
+
+	// The refresh token issued before the change was revoked.
+	if _, err := auth.Refresh(ctx, session.RefreshToken); err != service.ErrUnauthorized {
+		t.Fatalf("refresh with pre-change token: err = %v, want ErrUnauthorized", err)
+	}
+}

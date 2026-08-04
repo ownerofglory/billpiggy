@@ -25,6 +25,8 @@ type ExpenseService struct {
 	events     outbound.EventStore
 	unit       outbound.UnitOfWork
 	objectRefs outbound.ObjectReferenceRepository
+	groups     outbound.GroupRepository
+	taxonomy   outbound.TaxonomyRepository
 	now        func() time.Time
 }
 
@@ -44,6 +46,82 @@ func (s *ExpenseService) WithObjectReferences(references outbound.ObjectReferenc
 	return s
 }
 
+// WithGroups enables shared-group visibility for GetExpenseForViewer and
+// ListExpensesForViewer. Without it, those methods see only the viewer's own
+// expenses.
+func (s *ExpenseService) WithGroups(groups outbound.GroupRepository) *ExpenseService {
+	s.groups = groups
+	return s
+}
+
+// WithTaxonomy enables category/tag ownership validation on create and
+// update. Without it, an expense can reference any category or tag ID that
+// exists, regardless of who owns it.
+func (s *ExpenseService) WithTaxonomy(taxonomy outbound.TaxonomyRepository) *ExpenseService {
+	s.taxonomy = taxonomy
+	return s
+}
+
+// validateOwnership confirms categoryID (a default or one owned by ownerID)
+// and every tag in tagIDs belong to ownerID, so an expense can never
+// reference another user's private category or tag. A no-op without
+// WithTaxonomy configured.
+func (s *ExpenseService) validateOwnership(ctx context.Context, ownerID, categoryID string, tagIDs []string) error {
+	if s.taxonomy == nil {
+		return nil
+	}
+	if categoryID != "" {
+		categories, err := s.taxonomy.ListCategories(ctx, ownerID)
+		if err != nil {
+			return fmt.Errorf("list categories: %w", err)
+		}
+		found := false
+		for _, category := range categories {
+			if category.ID == categoryID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return ErrForbidden
+		}
+	}
+	if len(tagIDs) > 0 {
+		tags, err := s.taxonomy.ListTags(ctx, ownerID)
+		if err != nil {
+			return fmt.Errorf("list tags: %w", err)
+		}
+		owned := make(map[string]bool, len(tags))
+		for _, tag := range tags {
+			owned[tag.ID] = true
+		}
+		for _, tagID := range tagIDs {
+			if !owned[tagID] {
+				return ErrForbidden
+			}
+		}
+	}
+	return nil
+}
+
+// visibleGroupIDs returns the groups whose shared expenses viewer may read:
+// every group for a super-admin, or the groups viewer created or belongs to
+// otherwise. Returns nil without WithGroups configured.
+func (s *ExpenseService) visibleGroupIDs(ctx context.Context, viewer domain.AppUser) ([]string, error) {
+	if s.groups == nil {
+		return nil, nil
+	}
+	groups, err := s.groups.ListVisibleGroups(ctx, viewer.ID, viewer.Role == domain.RoleSuperAdmin)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(groups))
+	for _, group := range groups {
+		ids = append(ids, group.ID)
+	}
+	return ids, nil
+}
+
 // CreateExpense creates an expense for the authenticated owner.
 func (s *ExpenseService) CreateExpense(ctx context.Context, ownerID string, command CreateExpenseCommand) (domain.ExpenseRecord, error) {
 	now := s.now()
@@ -58,6 +136,9 @@ func (s *ExpenseService) CreateExpense(ctx context.Context, ownerID string, comm
 		expense.Status = domain.ExpenseConfirmed
 	}
 	if err := validateExpense(expense); err != nil {
+		return domain.ExpenseRecord{}, err
+	}
+	if err := s.validateOwnership(ctx, ownerID, expense.CategoryID, expense.TagIDs); err != nil {
 		return domain.ExpenseRecord{}, err
 	}
 	// The event is appended first so the aggregate advisory lock is taken
@@ -94,6 +175,9 @@ func (s *ExpenseService) UpdateExpense(ctx context.Context, ownerID, expenseID s
 		expense.Status = domain.ExpenseConfirmed
 	}
 	if err := validateExpense(expense); err != nil {
+		return domain.ExpenseRecord{}, err
+	}
+	if err := s.validateOwnership(ctx, ownerID, expense.CategoryID, expense.TagIDs); err != nil {
 		return domain.ExpenseRecord{}, err
 	}
 	if err := s.unit.Within(ctx, func(ctx context.Context) error {
@@ -148,6 +232,31 @@ func (s *ExpenseService) ListExpenses(ctx context.Context, filter outbound.Expen
 // GetExpense returns one expense only when it belongs to the authenticated owner.
 func (s *ExpenseService) GetExpense(ctx context.Context, ownerID, expenseID string) (domain.ExpenseRecord, error) {
 	expense, err := s.repository.GetExpense(ctx, ownerID, expenseID)
+	if err != nil {
+		return domain.ExpenseRecord{}, ErrNotFound
+	}
+	return expense, nil
+}
+
+// ListExpensesForViewer returns recent expenses the viewer owns, plus
+// expenses shared with any group they belong to.
+func (s *ExpenseService) ListExpensesForViewer(ctx context.Context, viewer domain.AppUser, filter outbound.ExpenseListFilter) ([]domain.ExpenseRecord, error) {
+	groupIDs, err := s.visibleGroupIDs(ctx, viewer)
+	if err != nil {
+		return nil, err
+	}
+	filter.OwnerID, filter.SharedGroupIDs = viewer.ID, groupIDs
+	return s.ListExpenses(ctx, filter)
+}
+
+// GetExpenseForViewer returns one expense the viewer owns or that is shared
+// with a group they belong to.
+func (s *ExpenseService) GetExpenseForViewer(ctx context.Context, viewer domain.AppUser, expenseID string) (domain.ExpenseRecord, error) {
+	groupIDs, err := s.visibleGroupIDs(ctx, viewer)
+	if err != nil {
+		return domain.ExpenseRecord{}, err
+	}
+	expense, err := s.repository.GetExpenseVisible(ctx, viewer.ID, expenseID, groupIDs)
 	if err != nil {
 		return domain.ExpenseRecord{}, ErrNotFound
 	}

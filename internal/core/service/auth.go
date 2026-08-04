@@ -341,6 +341,32 @@ func (s *AuthService) UpdateNotificationPreferences(ctx context.Context, userID 
 	return user, nil
 }
 
+// ChangePassword verifies currentPassword, rotates the stored hash to
+// newPassword, and revokes every live refresh token for the user, so a
+// session established under the old password (e.g. on a device that stole a
+// refresh token) cannot silently keep renewing access after the change.
+func (s *AuthService) ChangePassword(ctx context.Context, userID, currentPassword, newPassword string) error {
+	user, err := s.repository.GetUserByID(ctx, userID)
+	if err != nil {
+		return ErrNotFound
+	}
+	if bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(currentPassword)) != nil {
+		return ErrUnauthorized
+	}
+	if len(newPassword) < 12 {
+		return ErrConflict
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("hash password: %w", err)
+	}
+	user.PasswordHash, user.UpdatedAt = string(hash), s.now()
+	if err := s.repository.UpdateUser(ctx, user); err != nil {
+		return err
+	}
+	return s.repository.RevokeAllRefreshTokens(ctx, userID)
+}
+
 // GetProfile returns the current user's profile projection.
 func (s *AuthService) GetProfile(ctx context.Context, userID string) (domain.AppUser, error) {
 	user, err := s.repository.GetUserByID(ctx, userID)

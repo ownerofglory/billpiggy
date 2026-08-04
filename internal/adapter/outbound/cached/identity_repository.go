@@ -94,3 +94,6 @@ func (r *IdentityRepository) RotateRefreshToken(ctx context.Context, oldTokenID 
 func (r *IdentityRepository) RevokeRefreshToken(ctx context.Context, tokenID string) error {
 	return r.inner.RevokeRefreshToken(ctx, tokenID)
 }
+func (r *IdentityRepository) RevokeAllRefreshTokens(ctx context.Context, userID string) error {
+	return r.inner.RevokeAllRefreshTokens(ctx, userID)
+}

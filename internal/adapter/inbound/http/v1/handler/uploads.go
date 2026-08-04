@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/ownerofglory/billpiggy/internal/core/domain"
 	"github.com/ownerofglory/billpiggy/internal/core/port/inbound"
 	"github.com/ownerofglory/billpiggy/internal/core/port/outbound"
 	sharedauth "github.com/ownerofglory/billpiggy/pkg/auth"
@@ -52,6 +53,11 @@ type uploadHandler struct {
 func (h uploadHandler) owner(r *http.Request) string {
 	identity, _ := sharedauth.IdentityFromContext(r.Context())
 	return identity.Subject
+}
+
+func (h uploadHandler) actor(r *http.Request) domain.AppUser {
+	identity, _ := sharedauth.IdentityFromContext(r.Context())
+	return domain.AppUser{ID: identity.Subject, Role: domain.UserRole(identity.Role)}
 }
 
 // profileImage uploads an image for the current user's profile. It is
@@ -148,7 +154,8 @@ func (h uploadHandler) receipt(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, expense)
 }
 
-// downloadReceipt redirects to an owner-scoped expense's receipt.
+// downloadReceipt redirects to the receipt of an expense the viewer owns or
+// that is shared with one of their groups.
 //
 //	@Summary	Download expense receipt
 //	@Tags		expenses
@@ -157,7 +164,7 @@ func (h uploadHandler) receipt(w http.ResponseWriter, r *http.Request) {
 //	@Failure	404	{object}	map[string]string
 //	@Router		/billpiggy/api/v1/expenses/{expenseID}/receipt [get]
 func (h uploadHandler) downloadReceipt(w http.ResponseWriter, r *http.Request) {
-	expense, err := h.expenses.GetExpense(r.Context(), h.owner(r), chi.URLParam(r, "expenseID"))
+	expense, err := h.expenses.GetExpenseForViewer(r.Context(), h.actor(r), chi.URLParam(r, "expenseID"))
 	if err != nil || expense.ReceiptObjectKey == "" {
 		writeJSONError(w, 404, "receipt not found")
 		return

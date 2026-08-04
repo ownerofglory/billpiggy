@@ -215,3 +215,17 @@ func (r *IdentityRepository) RevokeRefreshToken(_ context.Context, tokenID strin
 	r.refreshByID[tokenID] = token
 	return nil
 }
+
+// RevokeAllRefreshTokens revokes every live refresh token for userID.
+func (r *IdentityRepository) RevokeAllRefreshTokens(_ context.Context, userID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := time.Now()
+	for id, token := range r.refreshByID {
+		if token.UserID == userID && token.RevokedAt == nil {
+			token.RevokedAt = &now
+			r.refreshByID[id] = token
+		}
+	}
+	return nil
+}
