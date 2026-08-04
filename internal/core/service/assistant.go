@@ -49,11 +49,13 @@ type AssistantService struct {
 	provider outbound.AIProvider
 	expenses outbound.ExpenseRepository
 	budgets  outbound.BudgetRepository
-	limit    *ratelimit.FixedWindow
+	limit    ratelimit.Limiter
 	model    string
 }
 
-// NewAssistantService creates a rate-limited assistant service.
+// NewAssistantService creates a rate-limited assistant service. The default
+// limiter is in-memory and process-local; call WithLimiter with a durable
+// implementation for multi-replica deployments.
 func NewAssistantService(provider outbound.AIProvider, expenses outbound.ExpenseRepository, budgets outbound.BudgetRepository) (*AssistantService, error) {
 	if provider == nil || expenses == nil || budgets == nil {
 		return nil, fmt.Errorf("assistant provider, expenses, and budgets are required")
@@ -72,10 +74,17 @@ func (s *AssistantService) WithModel(model string) *AssistantService {
 	return s
 }
 
+// WithLimiter overrides the default in-memory rate limiter, for a durable,
+// cross-replica implementation in production.
+func (s *AssistantService) WithLimiter(limiter ratelimit.Limiter) *AssistantService {
+	s.limit = limiter
+	return s
+}
+
 // Ask answers one question, dispatching any tool calls the model makes against
 // the owner's own data, and returns the complete answer.
 func (s *AssistantService) Ask(ctx context.Context, ownerID, message string) (string, error) {
-	request, err := s.request(ownerID, message)
+	request, err := s.request(ctx, ownerID, message)
 	if err != nil {
 		return "", err
 	}
@@ -104,7 +113,7 @@ func (s *AssistantService) Ask(ctx context.Context, ownerID, message string) (st
 //
 // Callers must drain the returned channel or cancel ctx.
 func (s *AssistantService) AskStream(ctx context.Context, ownerID, message string) (<-chan domain.CompletionChunk, error) {
-	request, err := s.request(ownerID, message)
+	request, err := s.request(ctx, ownerID, message)
 	if err != nil {
 		return nil, err
 	}
@@ -181,18 +190,25 @@ func drain(chunks <-chan domain.CompletionChunk) {
 // request validates the question, enforces the per-user rate limit, and builds
 // the tool-enabled conversation. The rate limit covers the whole question, not
 // each tool round it takes to answer it.
-func (s *AssistantService) request(ownerID, message string) (domain.CompletionRequest, error) {
+func (s *AssistantService) request(ctx context.Context, ownerID, message string) (domain.CompletionRequest, error) {
 	if strings.TrimSpace(message) == "" {
 		return domain.CompletionRequest{}, fmt.Errorf("message is required")
 	}
 	if ownerID == "" {
 		return domain.CompletionRequest{}, ErrForbidden
 	}
-	if !s.limit.Allow(ownerID) {
+	// Prefixed so this limiter's key namespace never collides with another
+	// AI workload's limiter sharing the same durable store.
+	allowed, err := s.limit.Allow(ctx, "assistant:"+ownerID)
+	if err != nil {
+		return domain.CompletionRequest{}, err
+	}
+	if !allowed {
 		return domain.CompletionRequest{}, ErrForbidden
 	}
 	return domain.CompletionRequest{
-		Model: s.model,
+		UserID: ownerID,
+		Model:  s.model,
 		Messages: []domain.Message{
 			domain.SystemMessage(assistantInstructions),
 			domain.UserMessage(message),

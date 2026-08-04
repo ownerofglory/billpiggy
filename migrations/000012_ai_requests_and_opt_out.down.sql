@@ -1,0 +1,4 @@
+DROP TABLE IF EXISTS ai.requests;
+DROP SCHEMA IF EXISTS ai;
+
+ALTER TABLE identity.users DROP COLUMN IF EXISTS ai_enabled;

@@ -12,13 +12,16 @@ import (
 )
 
 // RegisterAssistantRoutes mounts the authenticated streaming assistant endpoint.
-func RegisterAssistantRoutes(router chi.Router, assistant *service.AssistantService, middleware *sharedauth.Middleware) {
+func RegisterAssistantRoutes(router chi.Router, assistant *service.AssistantService, auth *service.AuthService, middleware *sharedauth.Middleware) {
 	router.Route(basePathV1+"/assistant", func(routes chi.Router) {
-		routes.With(middleware.RequireAuthentication).Post("/chat", assistantHandler{service: assistant}.chat)
+		routes.With(middleware.RequireAuthentication).Post("/chat", assistantHandler{service: assistant, auth: auth}.chat)
 	})
 }
 
-type assistantHandler struct{ service *service.AssistantService }
+type assistantHandler struct {
+	service *service.AssistantService
+	auth    *service.AuthService
+}
 type assistantRequest struct {
 	Message string `json:"message"`
 }
@@ -37,11 +40,15 @@ type assistantRequest struct {
 //	@Failure	401		{object}	map[string]string
 //	@Router		/billpiggy/api/v1/assistant/chat [post]
 func (h assistantHandler) chat(w http.ResponseWriter, r *http.Request) {
-	// The request body is read before the SSE headers go out, so a malformed
-	// body still produces an ordinary JSON 400 rather than an error event on a
-	// stream the client has already committed to.
+	// The request body is decoded and the AI opt-out checked before the SSE
+	// headers go out, so a malformed body or a disabled account gets an
+	// ordinary JSON error rather than an event on a stream the client has
+	// already committed to.
 	var request assistantRequest
 	if h.service != nil && !decodeJSON(w, r, &request) {
+		return
+	}
+	if h.service != nil && !requireAIEnabled(w, r, h.auth) {
 		return
 	}
 	sse.Prepare(w)

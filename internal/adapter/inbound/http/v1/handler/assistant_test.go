@@ -16,8 +16,9 @@ import (
 )
 
 // assistantRouter wires the assistant endpoint behind real authentication and
-// returns the router together with a bearer token for the bootstrap admin.
-func assistantRouter(t *testing.T, assistant *service.AssistantService) (chi.Router, string) {
+// returns the router, a bearer token for the bootstrap admin, and the auth
+// service so a test can change that admin's profile (such as the AI opt-out).
+func assistantRouter(t *testing.T, assistant *service.AssistantService) (chi.Router, string, *service.AuthService) {
 	t.Helper()
 	repository := memory.NewIdentityRepository()
 	authService, err := service.NewAuthService(repository, service.AuthConfig{
@@ -36,8 +37,8 @@ func assistantRouter(t *testing.T, assistant *service.AssistantService) (chi.Rou
 		t.Fatalf("login: %v", err)
 	}
 	router := chi.NewRouter()
-	handler.RegisterAssistantRoutes(router, assistant, handler.NewAuthMiddleware(authService))
-	return router, session.AccessToken
+	handler.RegisterAssistantRoutes(router, assistant, authService, handler.NewAuthMiddleware(authService))
+	return router, session.AccessToken, authService
 }
 
 // sseEvents splits an SSE body into (event, data) pairs.
@@ -67,7 +68,7 @@ func TestAssistantChatStreamsDeltasProgressively(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build assistant: %v", err)
 	}
-	router, token := assistantRouter(t, assistant)
+	router, token, _ := assistantRouter(t, assistant)
 
 	request := httptest.NewRequest(http.MethodPost, "/billpiggy/api/v1/assistant/chat", strings.NewReader(`{"message":"what did I spend?"}`))
 	request.Header.Set("Authorization", "Bearer "+token)
@@ -122,7 +123,7 @@ func TestAssistantChatReportsRateLimitOnTheStream(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build assistant: %v", err)
 	}
-	router, token := assistantRouter(t, assistant)
+	router, token, _ := assistantRouter(t, assistant)
 
 	var lastBody string
 	for i := 0; i < 11; i++ {
@@ -140,7 +141,7 @@ func TestAssistantChatReportsRateLimitOnTheStream(t *testing.T) {
 func TestAssistantChatReportsAnUnconfiguredProvider(t *testing.T) {
 	// Without OPENAI_API_KEY the service is nil; the endpoint must still honour
 	// its SSE contract rather than failing the request outright.
-	router, token := assistantRouter(t, nil)
+	router, token, _ := assistantRouter(t, nil)
 	request := httptest.NewRequest(http.MethodPost, "/billpiggy/api/v1/assistant/chat", strings.NewReader(`{"message":"hi"}`))
 	request.Header.Set("Authorization", "Bearer "+token)
 	response := httptest.NewRecorder()
@@ -159,7 +160,7 @@ func TestAssistantChatRequiresAuthentication(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build assistant: %v", err)
 	}
-	router, _ := assistantRouter(t, assistant)
+	router, _, _ := assistantRouter(t, assistant)
 	request := httptest.NewRequest(http.MethodPost, "/billpiggy/api/v1/assistant/chat", strings.NewReader(`{"message":"hi"}`))
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, request)
@@ -168,12 +169,49 @@ func TestAssistantChatRequiresAuthentication(t *testing.T) {
 	}
 }
 
+func TestAssistantChatReportsAnOptedOutUser(t *testing.T) {
+	assistant, err := service.NewAssistantService(memory.NewAIProvider("ok"), memory.NewExpenseRepository(), memory.NewBudgetRepository())
+	if err != nil {
+		t.Fatalf("build assistant: %v", err)
+	}
+	router, token, authService := assistantRouter(t, assistant)
+	profile, err := authService.GetProfile(context.Background(), mustSubject(t, authService, token))
+	if err != nil {
+		t.Fatalf("get profile: %v", err)
+	}
+	if _, err := authService.UpdateProfile(context.Background(), profile.ID, profile.DisplayName, profile.Email, profile.EmailNotificationsEnabled, false); err != nil {
+		t.Fatalf("disable AI: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/billpiggy/api/v1/assistant/chat", strings.NewReader(`{"message":"hi"}`))
+	request.Header.Set("Authorization", "Bearer "+token)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	// The opt-out is checked before the response commits to being a stream,
+	// same as a malformed body.
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 for an opted-out user", response.Code)
+	}
+}
+
+// mustSubject decodes the user id out of an access token via the auth
+// service that issued it.
+func mustSubject(t *testing.T, authService *service.AuthService, accessToken string) string {
+	t.Helper()
+	user, err := authService.AuthenticateAccessToken(context.Background(), accessToken)
+	if err != nil {
+		t.Fatalf("authenticate token: %v", err)
+	}
+	return user.ID
+}
+
 func TestAssistantChatRejectsAMalformedBody(t *testing.T) {
 	assistant, err := service.NewAssistantService(memory.NewAIProvider("ok"), memory.NewExpenseRepository(), memory.NewBudgetRepository())
 	if err != nil {
 		t.Fatalf("build assistant: %v", err)
 	}
-	router, token := assistantRouter(t, assistant)
+	router, token, _ := assistantRouter(t, assistant)
 	request := httptest.NewRequest(http.MethodPost, "/billpiggy/api/v1/assistant/chat", strings.NewReader(`{`))
 	request.Header.Set("Authorization", "Bearer "+token)
 	response := httptest.NewRecorder()

@@ -31,24 +31,24 @@ func (r *IdentityRepository) CountSuperAdmins(ctx context.Context) (int, error) 
 }
 
 func (r *IdentityRepository) GetUserByID(ctx context.Context, id string) (domain.AppUser, error) {
-	return r.getUser(ctx, `select id::text, email, password_hash, display_name, coalesce(profile_image_object_key, ''), role::text, access_blocked, email_notifications_enabled, created_at, updated_at from identity.users where id = $1 and deleted_at is null`, id)
+	return r.getUser(ctx, `select id::text, email, password_hash, display_name, coalesce(profile_image_object_key, ''), role::text, access_blocked, email_notifications_enabled, ai_enabled, created_at, updated_at from identity.users where id = $1 and deleted_at is null`, id)
 }
 
 func (r *IdentityRepository) GetUserByEmail(ctx context.Context, email string) (domain.AppUser, error) {
-	return r.getUser(ctx, `select id::text, email, password_hash, display_name, coalesce(profile_image_object_key, ''), role::text, access_blocked, email_notifications_enabled, created_at, updated_at from identity.users where email = $1 and deleted_at is null`, email)
+	return r.getUser(ctx, `select id::text, email, password_hash, display_name, coalesce(profile_image_object_key, ''), role::text, access_blocked, email_notifications_enabled, ai_enabled, created_at, updated_at from identity.users where email = $1 and deleted_at is null`, email)
 }
 
 func (r *IdentityRepository) getUser(ctx context.Context, query string, argument any) (domain.AppUser, error) {
 	var user domain.AppUser
 	var role string
-	err := pgxtx.From(ctx, r.pool).QueryRow(ctx, query, argument).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.DisplayName, &user.ProfileImageObjectKey, &role, &user.AccessBlocked, &user.EmailNotificationsEnabled, &user.CreatedAt, &user.UpdatedAt)
+	err := pgxtx.From(ctx, r.pool).QueryRow(ctx, query, argument).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.DisplayName, &user.ProfileImageObjectKey, &role, &user.AccessBlocked, &user.EmailNotificationsEnabled, &user.AIEnabled, &user.CreatedAt, &user.UpdatedAt)
 	user.Role = domain.UserRole(role)
 	return user, err
 }
 
 // ListUsers returns all active user projections for administration.
 func (r *IdentityRepository) ListUsers(ctx context.Context) ([]domain.AppUser, error) {
-	rows, err := pgxtx.From(ctx, r.pool).Query(ctx, `select id::text, email, password_hash, display_name, coalesce(profile_image_object_key, ''), role::text, access_blocked, email_notifications_enabled, created_at, updated_at from identity.users where deleted_at is null order by created_at`)
+	rows, err := pgxtx.From(ctx, r.pool).Query(ctx, `select id::text, email, password_hash, display_name, coalesce(profile_image_object_key, ''), role::text, access_blocked, email_notifications_enabled, ai_enabled, created_at, updated_at from identity.users where deleted_at is null order by created_at`)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +57,7 @@ func (r *IdentityRepository) ListUsers(ctx context.Context) ([]domain.AppUser, e
 	for rows.Next() {
 		var user domain.AppUser
 		var role string
-		if err := rows.Scan(&user.ID, &user.Email, &user.PasswordHash, &user.DisplayName, &user.ProfileImageObjectKey, &role, &user.AccessBlocked, &user.EmailNotificationsEnabled, &user.CreatedAt, &user.UpdatedAt); err != nil {
+		if err := rows.Scan(&user.ID, &user.Email, &user.PasswordHash, &user.DisplayName, &user.ProfileImageObjectKey, &role, &user.AccessBlocked, &user.EmailNotificationsEnabled, &user.AIEnabled, &user.CreatedAt, &user.UpdatedAt); err != nil {
 			return nil, err
 		}
 		user.Role = domain.UserRole(role)
@@ -73,7 +73,7 @@ func (r *IdentityRepository) CreateUser(ctx context.Context, user domain.AppUser
 
 // UpdateUser replaces profile, authorization, and notification preference fields.
 func (r *IdentityRepository) UpdateUser(ctx context.Context, user domain.AppUser) error {
-	command, err := pgxtx.From(ctx, r.pool).Exec(ctx, `update identity.users set email=$2,password_hash=$3,display_name=$4,profile_image_object_key=nullif($5,''),role=$6,access_blocked=$7,email_notifications_enabled=$8,updated_at=$9 where id=$1 and deleted_at is null`, user.ID, user.Email, user.PasswordHash, user.DisplayName, user.ProfileImageObjectKey, user.Role, user.AccessBlocked, user.EmailNotificationsEnabled, user.UpdatedAt)
+	command, err := pgxtx.From(ctx, r.pool).Exec(ctx, `update identity.users set email=$2,password_hash=$3,display_name=$4,profile_image_object_key=nullif($5,''),role=$6,access_blocked=$7,email_notifications_enabled=$8,ai_enabled=$9,updated_at=$10 where id=$1 and deleted_at is null`, user.ID, user.Email, user.PasswordHash, user.DisplayName, user.ProfileImageObjectKey, user.Role, user.AccessBlocked, user.EmailNotificationsEnabled, user.AIEnabled, user.UpdatedAt)
 	if err != nil {
 		return err
 	}

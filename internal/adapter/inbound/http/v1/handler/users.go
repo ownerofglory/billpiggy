@@ -29,6 +29,7 @@ type profileRequest struct {
 	DisplayName               string `json:"display_name"`
 	Email                     string `json:"email"`
 	EmailNotificationsEnabled bool   `json:"email_notifications_enabled"`
+	AIEnabled                 bool   `json:"ai_enabled"`
 }
 type manageUserRequest struct {
 	Role          domain.UserRole `json:"role"`
@@ -40,7 +41,7 @@ func (h userHandler) actor(r *http.Request) domain.AppUser {
 	return domain.AppUser{ID: identity.Subject, Role: domain.UserRole(identity.Role)}
 }
 func userPublic(value domain.AppUser) userResponseBody {
-	return userResponseBody{ID: value.ID, Email: value.Email, DisplayName: value.DisplayName, Role: string(value.Role), EmailNotificationsEnabled: value.EmailNotificationsEnabled}
+	return userResponseBody{ID: value.ID, Email: value.Email, DisplayName: value.DisplayName, Role: string(value.Role), EmailNotificationsEnabled: value.EmailNotificationsEnabled, AIEnabled: value.AIEnabled}
 }
 
 // profile returns the authenticated user's profile.
@@ -73,7 +74,7 @@ func (h userHandler) updateProfile(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	user, err := h.service.UpdateProfile(r.Context(), h.actor(r).ID, req.DisplayName, req.Email, req.EmailNotificationsEnabled)
+	user, err := h.service.UpdateProfile(r.Context(), h.actor(r).ID, req.DisplayName, req.Email, req.EmailNotificationsEnabled, req.AIEnabled)
 	if err != nil {
 		writeJSONError(w, 400, "profile could not be updated")
 		return

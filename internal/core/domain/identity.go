@@ -57,8 +57,11 @@ type AppUser struct {
 	Role                      UserRole
 	AccessBlocked             bool
 	EmailNotificationsEnabled bool
-	CreatedAt                 time.Time
-	UpdatedAt                 time.Time
+	// AIEnabled opts the user into AI features (the assistant, receipt
+	// extraction, sentence and dictation expense entry). Defaults to true.
+	AIEnabled bool
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // Invitation permits a specific email address to create an account.

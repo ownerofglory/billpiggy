@@ -258,7 +258,7 @@ func newUser(email, password, displayName string, role domain.UserRole, now time
 	if err != nil {
 		return domain.AppUser{}, fmt.Errorf("hash password: %w", err)
 	}
-	return domain.AppUser{ID: uuid.NewString(), Email: normalizeEmail(email), PasswordHash: string(hash), DisplayName: strings.TrimSpace(displayName), Role: role, EmailNotificationsEnabled: true, CreatedAt: now, UpdatedAt: now}, nil
+	return domain.AppUser{ID: uuid.NewString(), Email: normalizeEmail(email), PasswordHash: string(hash), DisplayName: strings.TrimSpace(displayName), Role: role, EmailNotificationsEnabled: true, AIEnabled: true, CreatedAt: now, UpdatedAt: now}, nil
 }
 
 // ListUsers returns active users for an administrator.
@@ -269,13 +269,14 @@ func (s *AuthService) ListUsers(ctx context.Context, actor domain.AppUser) ([]do
 	return s.repository.ListUsers(ctx)
 }
 
-// UpdateProfile changes a user's own profile and notification preference.
-func (s *AuthService) UpdateProfile(ctx context.Context, userID, displayName, email string, notifications bool) (domain.AppUser, error) {
+// UpdateProfile changes a user's own profile, notification preference, and AI
+// opt-in setting.
+func (s *AuthService) UpdateProfile(ctx context.Context, userID, displayName, email string, notifications, aiEnabled bool) (domain.AppUser, error) {
 	user, err := s.repository.GetUserByID(ctx, userID)
 	if err != nil {
 		return domain.AppUser{}, ErrNotFound
 	}
-	user.DisplayName, user.Email, user.EmailNotificationsEnabled, user.UpdatedAt = strings.TrimSpace(displayName), normalizeEmail(email), notifications, s.now()
+	user.DisplayName, user.Email, user.EmailNotificationsEnabled, user.AIEnabled, user.UpdatedAt = strings.TrimSpace(displayName), normalizeEmail(email), notifications, aiEnabled, s.now()
 	if user.DisplayName == "" || user.Email == "" {
 		return domain.AppUser{}, ErrConflict
 	}

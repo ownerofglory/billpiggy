@@ -359,6 +359,8 @@ definitions:
     type: object
   handler.profileRequest:
     properties:
+      ai_enabled:
+        type: boolean
       display_name:
         type: string
       email:
@@ -382,6 +384,8 @@ definitions:
     type: object
   handler.userResponseBody:
     properties:
+      ai_enabled:
+        type: boolean
       display_name:
         type: string
       email:

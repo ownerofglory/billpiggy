@@ -189,7 +189,7 @@ func (authorizer) Allows(identity sharedauth.Identity, permission string) bool {
 }
 
 func userResponse(user domain.AppUser) userResponseBody {
-	return userResponseBody{ID: user.ID, Email: user.Email, DisplayName: user.DisplayName, Role: string(user.Role), EmailNotificationsEnabled: user.EmailNotificationsEnabled}
+	return userResponseBody{ID: user.ID, Email: user.Email, DisplayName: user.DisplayName, Role: string(user.Role), EmailNotificationsEnabled: user.EmailNotificationsEnabled, AIEnabled: user.AIEnabled}
 }
 func decodeJSON(w http.ResponseWriter, r *http.Request, target any) bool {
 	if err := json.NewDecoder(r.Body).Decode(target); err != nil {
@@ -226,6 +226,7 @@ type userResponseBody struct {
 	DisplayName               string `json:"display_name"`
 	Role                      string `json:"role"`
 	EmailNotificationsEnabled bool   `json:"email_notifications_enabled"`
+	AIEnabled                 bool   `json:"ai_enabled"`
 }
 type currentUserResponse struct {
 	ID    string `json:"id"`

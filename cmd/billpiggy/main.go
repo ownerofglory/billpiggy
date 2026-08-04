@@ -21,12 +21,22 @@ import (
 	minioadapter "github.com/ownerofglory/billpiggy/internal/adapter/outbound/minio"
 	openaiadapter "github.com/ownerofglory/billpiggy/internal/adapter/outbound/openai"
 	postgresadapter "github.com/ownerofglory/billpiggy/internal/adapter/outbound/postgres"
+	"github.com/ownerofglory/billpiggy/internal/core/domain"
 	"github.com/ownerofglory/billpiggy/internal/core/port/outbound"
 	"github.com/ownerofglory/billpiggy/internal/core/service"
 	"github.com/ownerofglory/billpiggy/pkg/email"
 	"github.com/ownerofglory/billpiggy/pkg/health"
 	"github.com/ownerofglory/billpiggy/pkg/outbox"
 	"github.com/ownerofglory/billpiggy/pkg/pgxtx"
+	"github.com/ownerofglory/billpiggy/pkg/ratelimit"
+)
+
+// assistantRateLimit is how many assistant questions one user may ask per
+// window. It is deliberately generous for a family-sized deployment but still
+// bounded, since every question is a paid provider call.
+const (
+	assistantRateLimit    = 10
+	assistantRateInterval = time.Minute
 )
 
 // subscriptionRegistrar registers a durable outbox subscription, backfilling it
@@ -49,10 +59,25 @@ type stores struct {
 	audit         outbound.AuditRepository
 	notifications outbound.NotificationRepository
 	objectRefs    outbound.ObjectReferenceRepository
+	aiRequests    outbound.AIRequestRepository
 	events        outbound.EventStore
 	outboxStore   outbox.Store
 	subscriptions subscriptionRegistrar
-	close         func()
+	// pool is non-nil only in the PostgreSQL configuration. It backs the
+	// durable rate limiter and its cleanup; nothing else should reach for it
+	// directly, since every other outbound need already has a port above.
+	pool  *pgxpool.Pool
+	close func()
+}
+
+// newLimiter builds a fixed-window limiter for one AI workload. It is durable
+// and shared across replicas when PostgreSQL is configured, and falls back to
+// an in-memory, process-local limiter otherwise.
+func (s stores) newLimiter(limit int, interval time.Duration) ratelimit.Limiter {
+	if s.pool == nil {
+		return ratelimit.NewFixedWindow(limit, interval)
+	}
+	return postgresadapter.NewRateLimiter(s.pool, limit, interval)
 }
 
 // @title			BillPiggy API
@@ -148,9 +173,12 @@ func main() {
 		os.Exit(1)
 	}
 	go sweepOrphanedObjects(ctx, retentionService)
+	if adapters.pool != nil {
+		go cleanupRateLimitWindows(ctx, postgresadapter.NewRateLimiter(adapters.pool, 0, 0))
+	}
 	var assistantService *service.AssistantService
 	if cfg.OpenAIAPIKey != "" {
-		provider, err := openaiadapter.NewClient(cfg.OpenAIAPIKey,
+		client, err := openaiadapter.NewClient(cfg.OpenAIAPIKey,
 			openaiadapter.WithModel(cfg.OpenAIAssistantModel),
 			openaiadapter.WithBaseURL(cfg.OpenAIBaseURL),
 			openaiadapter.WithLogger(slog.Default()))
@@ -158,12 +186,19 @@ func main() {
 			slog.Error("configure OpenAI client", "error", err)
 			os.Exit(1)
 		}
-		assistantService, err = service.NewAssistantService(provider, adapters.expenses, adapters.budgets)
+		auditedProvider, err := service.NewAuditedAIProvider(client, adapters.aiRequests, domain.AIWorkloadAssistant)
+		if err != nil {
+			slog.Error("configure AI request auditing", "error", err)
+			os.Exit(1)
+		}
+		assistantService, err = service.NewAssistantService(auditedProvider, adapters.expenses, adapters.budgets)
 		if err != nil {
 			slog.Error("configure assistant", "error", err)
 			os.Exit(1)
 		}
-		assistantService = assistantService.WithModel(cfg.OpenAIAssistantModel)
+		assistantService = assistantService.
+			WithModel(cfg.OpenAIAssistantModel).
+			WithLimiter(adapters.newLimiter(assistantRateLimit, assistantRateInterval))
 	}
 
 	// HTTP handler setup
@@ -176,7 +211,7 @@ func main() {
 	handler.RegisterAnalyticsRoutes(r, analyticsService, handler.NewAuthMiddleware(authService))
 	handler.RegisterTaxonomyRoutes(r, taxonomyService, handler.NewAuthMiddleware(authService))
 	handler.RegisterGroupRoutes(r, groupService, handler.NewAuthMiddleware(authService))
-	handler.RegisterAssistantRoutes(r, assistantService, handler.NewAuthMiddleware(authService))
+	handler.RegisterAssistantRoutes(r, assistantService, authService, handler.NewAuthMiddleware(authService))
 	r.Get("/livez", healthRegistry.Live)
 	r.Get("/readyz", healthRegistry.Ready)
 	r.Get("/startupz", healthRegistry.Startup)
@@ -292,9 +327,11 @@ func applicationStores(cfg config.BillPiggyAppConfig, healthRegistry *health.Reg
 		audit:         postgresadapter.NewAuditRepository(pool),
 		notifications: postgresadapter.NewNotificationRepository(pool),
 		objectRefs:    postgresadapter.NewObjectReferenceRepository(pool),
+		aiRequests:    postgresadapter.NewAIRequestRepository(pool),
 		events:        postgresadapter.NewEventStore(pool),
 		outboxStore:   outboxStore,
 		subscriptions: outboxStore,
+		pool:          pool,
 		close:         pool.Close,
 	}
 }
@@ -312,6 +349,7 @@ func memoryStores() stores {
 	audit := memory.NewAuditRepository()
 	notifications := memory.NewNotificationRepository()
 	objectRefs := memory.NewObjectReferenceRepository()
+	aiRequests := memory.NewAIRequestRepository()
 	events := memory.NewEventStore()
 	unit := memory.NewUnitOfWork(expenses, budgets, analytics, budgetUsage, audit, notifications, objectRefs, taxonomy, events)
 	events.WithUnitOfWork(unit)
@@ -327,6 +365,7 @@ func memoryStores() stores {
 		audit:         audit,
 		notifications: notifications,
 		objectRefs:    objectRefs,
+		aiRequests:    aiRequests,
 		events:        events,
 		outboxStore:   events,
 		subscriptions: events,
@@ -344,6 +383,27 @@ func sweepOrphanedObjects(ctx context.Context, retention *service.RetentionServi
 			slog.Error("sweep orphaned objects", "error", err)
 		} else if swept > 0 {
 			slog.Info("swept orphaned objects", "count", swept)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+// cleanupRateLimitWindows periodically deletes closed rate-limit windows so
+// ratelimit.windows does not grow without bound. The retain period must stay
+// well above every limiter's interval configured against this table; a day
+// comfortably covers the per-minute and per-day AI limits in use.
+func cleanupRateLimitWindows(ctx context.Context, limiter *postgresadapter.RateLimiter) {
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		if removed, err := limiter.CleanupExpired(ctx, 24*time.Hour); err != nil {
+			slog.Error("clean up rate limit windows", "error", err)
+		} else if removed > 0 {
+			slog.Info("cleaned up rate limit windows", "count", removed)
 		}
 		select {
 		case <-ctx.Done():

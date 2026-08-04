@@ -161,6 +161,9 @@ type ResponseFormat struct {
 // A single request type keeps the provider port to two methods instead of one
 // per combination of tools, schema and streaming.
 type CompletionRequest struct {
+	// UserID identifies who the request is made on behalf of, for cost
+	// tracking and audit. It is never sent to the provider.
+	UserID string
 	// Model overrides the provider's configured default when set.
 	Model string
 	// Messages is the conversation so far.
