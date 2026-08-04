@@ -45,7 +45,7 @@ func (h userHandler) actor(r *http.Request) domain.AppUser {
 }
 func userPublic(value domain.AppUser) userResponseBody {
 	return userResponseBody{
-		ID: value.ID, Email: value.Email, DisplayName: value.DisplayName, Role: string(value.Role),
+		ID: value.ID, Email: value.Email, DisplayName: value.DisplayName, Role: string(value.Role), AccessBlocked: value.AccessBlocked,
 		EmailNotificationsEnabled: value.EmailNotificationsEnabled, NotificationPreferences: value.NotificationPreferences, AIEnabled: value.AIEnabled,
 	}
 }

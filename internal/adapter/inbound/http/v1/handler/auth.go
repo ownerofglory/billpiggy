@@ -223,6 +223,7 @@ type userResponseBody struct {
 	Email                     string                           `json:"email"`
 	DisplayName               string                           `json:"display_name"`
 	Role                      string                           `json:"role"`
+	AccessBlocked             bool                             `json:"access_blocked"`
 	EmailNotificationsEnabled bool                             `json:"email_notifications_enabled"`
 	NotificationPreferences   map[domain.NotificationKind]bool `json:"notification_preferences"`
 	AIEnabled                 bool                             `json:"ai_enabled"`
