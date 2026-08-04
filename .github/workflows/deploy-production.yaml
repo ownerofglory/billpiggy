@@ -31,6 +31,7 @@ jobs:
           KUBERNETES_CLIENT_KEY_DATA: ${{ secrets.KUBERNETES_CLIENT_KEY_DATA }}
         run: envsubst < .kube/config > "$RUNNER_TEMP/kubeconfig"
       - uses: azure/setup-helm@v4
+      - uses: azure/setup-kubectl@v4
       - id: registry
         name: Resolve chart registry
         shell: bash
@@ -39,6 +40,47 @@ jobs:
           echo "url=oci://ghcr.io/$owner/helm-charts/billpiggy" >> "$GITHUB_OUTPUT"
       - name: Log in to GitHub Container Registry
         run: echo '${{ secrets.GITHUB_TOKEN }}' | helm registry login ghcr.io -u '${{ github.actor }}' --password-stdin
+      # The application Secret is applied directly with kubectl, outside Helm, so its
+      # values never appear in `helm get values`/release metadata. The chart is then
+      # deployed with existingSecret pointing at it instead of the secrets.* values —
+      # see docs/production-deployment.md#secret-handling.
+      - name: Apply application secret
+        env:
+          KUBECONFIG: ${{ runner.temp }}/kubeconfig
+          KUBERNETES_NAMESPACE: ${{ secrets.KUBERNETES_NAMESPACE }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          BOOTSTRAP_SUPER_ADMIN_EMAIL: ${{ secrets.BOOTSTRAP_SUPER_ADMIN_EMAIL }}
+          BOOTSTRAP_SUPER_ADMIN_PASSWORD: ${{ secrets.BOOTSTRAP_SUPER_ADMIN_PASSWORD }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          SMTP_ADDRESS: ${{ secrets.SMTP_ADDRESS }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_FROM: ${{ secrets.SMTP_FROM }}
+          MINIO_ENDPOINT: ${{ secrets.MINIO_ENDPOINT }}
+          MINIO_ACCESS_KEY: ${{ secrets.MINIO_ACCESS_KEY }}
+          MINIO_SECRET_KEY: ${{ secrets.MINIO_SECRET_KEY }}
+          MINIO_BUCKET: ${{ vars.MINIO_BUCKET || 'billpiggy' }}
+          MINIO_USE_SSL: ${{ vars.MINIO_USE_SSL || 'false' }}
+        run: |
+          kubectl create namespace "$KUBERNETES_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create secret generic billpiggy-app \
+            --namespace "$KUBERNETES_NAMESPACE" \
+            --from-literal=DATABASE_URL="$DATABASE_URL" \
+            --from-literal=JWT_SECRET="$JWT_SECRET" \
+            --from-literal=BOOTSTRAP_SUPER_ADMIN_EMAIL="$BOOTSTRAP_SUPER_ADMIN_EMAIL" \
+            --from-literal=BOOTSTRAP_SUPER_ADMIN_PASSWORD="$BOOTSTRAP_SUPER_ADMIN_PASSWORD" \
+            --from-literal=OPENAI_API_KEY="$OPENAI_API_KEY" \
+            --from-literal=SMTP_ADDRESS="$SMTP_ADDRESS" \
+            --from-literal=SMTP_USERNAME="$SMTP_USERNAME" \
+            --from-literal=SMTP_PASSWORD="$SMTP_PASSWORD" \
+            --from-literal=SMTP_FROM="$SMTP_FROM" \
+            --from-literal=MINIO_ENDPOINT="$MINIO_ENDPOINT" \
+            --from-literal=MINIO_ACCESS_KEY="$MINIO_ACCESS_KEY" \
+            --from-literal=MINIO_SECRET_KEY="$MINIO_SECRET_KEY" \
+            --from-literal=MINIO_BUCKET="$MINIO_BUCKET" \
+            --from-literal=MINIO_USE_SSL="$MINIO_USE_SSL" \
+            --dry-run=client -o yaml | kubectl apply -f -
       - name: Deploy chart
         env:
           KUBECONFIG: ${{ runner.temp }}/kubeconfig
@@ -51,22 +93,8 @@ jobs:
           INGRESS_CLUSTER_ISSUER: ${{ vars.INGRESS_CLUSTER_ISSUER }}
           INGRESS_TLS_SECRET_NAME: ${{ vars.INGRESS_TLS_SECRET_NAME }}
           LOG_LEVEL: ${{ vars.LOG_LEVEL || 'info' }}
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          BOOTSTRAP_SUPER_ADMIN_EMAIL: ${{ secrets.BOOTSTRAP_SUPER_ADMIN_EMAIL }}
-          BOOTSTRAP_SUPER_ADMIN_PASSWORD: ${{ secrets.BOOTSTRAP_SUPER_ADMIN_PASSWORD }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_ASSISTANT_MODEL: ${{ vars.OPENAI_ASSISTANT_MODEL || 'gpt-5.6-luna' }}
           OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
-          SMTP_ADDRESS: ${{ secrets.SMTP_ADDRESS }}
-          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
-          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
-          SMTP_FROM: ${{ secrets.SMTP_FROM }}
-          MINIO_ENDPOINT: ${{ secrets.MINIO_ENDPOINT }}
-          MINIO_ACCESS_KEY: ${{ secrets.MINIO_ACCESS_KEY }}
-          MINIO_SECRET_KEY: ${{ secrets.MINIO_SECRET_KEY }}
-          MINIO_BUCKET: ${{ vars.MINIO_BUCKET || 'billpiggy' }}
-          MINIO_USE_SSL: ${{ vars.MINIO_USE_SSL || 'false' }}
           KUBERNETES_NAMESPACE: ${{ secrets.KUBERNETES_NAMESPACE }}
         run: |
           helm upgrade --install billpiggy "$CHART_REGISTRY" \
@@ -80,22 +108,9 @@ jobs:
             --set-string ingress.tlsSecretName="$INGRESS_TLS_SECRET_NAME" \
             --set-string env.logLevel="$LOG_LEVEL" \
             --set-string env.appEnvironment="production" \
-            --set-string secrets.databaseURL="$DATABASE_URL" \
-            --set-string secrets.jwtSecret="$JWT_SECRET" \
-            --set-string secrets.bootstrapSuperAdminEmail="$BOOTSTRAP_SUPER_ADMIN_EMAIL" \
-            --set-string secrets.bootstrapSuperAdminPassword="$BOOTSTRAP_SUPER_ADMIN_PASSWORD" \
-            --set-string secrets.openAIAPIKey="$OPENAI_API_KEY" \
             --set-string env.openAIAssistantModel="$OPENAI_ASSISTANT_MODEL" \
             --set-string env.openAIBaseURL="$OPENAI_BASE_URL" \
-            --set-string secrets.smtpAddress="$SMTP_ADDRESS" \
-            --set-string secrets.smtpUsername="$SMTP_USERNAME" \
-            --set-string secrets.smtpPassword="$SMTP_PASSWORD" \
-            --set-string secrets.smtpFrom="$SMTP_FROM" \
-            --set-string secrets.minioEndpoint="$MINIO_ENDPOINT" \
-            --set-string secrets.minioAccessKey="$MINIO_ACCESS_KEY" \
-            --set-string secrets.minioSecretKey="$MINIO_SECRET_KEY" \
-            --set-string secrets.minioBucket="$MINIO_BUCKET" \
-            --set-string secrets.minioUseSSL="$MINIO_USE_SSL" \
+            --set-string existingSecret="billpiggy-app" \
             --namespace="$KUBERNETES_NAMESPACE" \
             --create-namespace \
             --wait \

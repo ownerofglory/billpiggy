@@ -39,8 +39,13 @@ jobs:
       TF_VAR_minio_root_password: ${{ secrets.MINIO_ROOT_PASSWORD }}
       TF_VAR_minio_app_user: ${{ secrets.MINIO_APP_USER }}
       TF_VAR_minio_app_password: ${{ secrets.MINIO_APP_PASSWORD }}
+      TF_VAR_minio_backup_user: ${{ secrets.MINIO_BACKUP_USER }}
+      TF_VAR_minio_backup_password: ${{ secrets.MINIO_BACKUP_PASSWORD }}
       TF_VAR_namespace: ${{ vars.INFRASTRUCTURE_NAMESPACE || 'billpiggy-infra' }}
       TF_VAR_storage_class: ${{ vars.K3S_STORAGE_CLASS || 'local-path' }}
+      TF_VAR_postgres_backup_schedule: ${{ vars.POSTGRES_BACKUP_SCHEDULE || '0 3 * * *' }}
+      TF_VAR_minio_backup_schedule: ${{ vars.MINIO_BACKUP_SCHEDULE || '30 3 * * *' }}
+      TF_VAR_backup_retention_days: ${{ vars.BACKUP_RETENTION_DAYS || '14' }}
     steps:
       - uses: actions/checkout@v4
       - name: Configure cluster access

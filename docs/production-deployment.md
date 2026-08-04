@@ -36,6 +36,8 @@ that production deployment requires approval.
 | `MINIO_ROOT_PASSWORD` | IaC workflow | MinIO root secret key. |
 | `MINIO_APP_USER` | IaC workflow | Access key for the application's scoped MinIO user, provisioned by Terraform with access to only the `billpiggy` bucket. Also set as `MINIO_ACCESS_KEY` above. |
 | `MINIO_APP_PASSWORD` | IaC workflow | Secret key for the scoped application user. Also set as `MINIO_SECRET_KEY` above. |
+| `MINIO_BACKUP_USER` | IaC workflow | Access key for the scoped backup user, provisioned by Terraform with access to only `billpiggy-backups`. Used solely by the in-cluster backup `CronJob`s. |
+| `MINIO_BACKUP_PASSWORD` | IaC workflow | Secret key for the scoped backup user. |
 | `TF_HTTP_ADDRESS` | IaC workflow | HTTP Terraform state endpoint. |
 | `TF_HTTP_USERNAME` | IaC workflow | HTTP state backend user, if required. |
 | `TF_HTTP_PASSWORD` | IaC workflow | HTTP state backend password, if required. |
@@ -58,6 +60,9 @@ bootstrapped.
 | `LOG_LEVEL` | Optional | `info` |
 | `INFRASTRUCTURE_NAMESPACE` | IaC workflow | `billpiggy-infra` |
 | `K3S_STORAGE_CLASS` | IaC workflow | `local-path` |
+| `POSTGRES_BACKUP_SCHEDULE` | Optional | `0 3 * * *` |
+| `MINIO_BACKUP_SCHEDULE` | Optional | `30 3 * * *` |
+| `BACKUP_RETENTION_DAYS` | Optional | `14` |
 | `MINIO_BUCKET` | Optional | `billpiggy` |
 | `MINIO_USE_SSL` | Optional | `false` for the in-cluster MinIO service |
 | `OPENAI_ASSISTANT_MODEL` | Optional | `gpt-5.6-luna` |
@@ -71,6 +76,11 @@ Job inside the cluster, so the cluster-internal PostgreSQL service never needs t
 exposed to a GitHub-hosted runner. Provide the release image tag and type `MIGRATE`
 to confirm. The job records applied files in `public.schema_migrations` and is safe to
 run again for the same image.
+
+The application chart itself also gates on this: a `pre-install`/`pre-upgrade` hook
+Job (`migrations-check`, enabled by default via `migrationsCheck.enabled`) fails the
+release outright if the target image expects migrations the database doesn't have
+yet, so `helm upgrade` can't silently roll out a schema-incompatible deployment.
 
 ## Infrastructure provisioning
 
@@ -96,11 +106,23 @@ The deployment waits up to five minutes for the Helm release. The application pr
 `/livez`, `/readyz`, and `/startupz`; a deployment is not ready until its required
 runtime dependencies are ready.
 
+The **Post-deploy smoke test** workflow runs automatically after a successful
+**Deploy Kubernetes production** run (or on demand via `workflow_dispatch`) and curls
+those same three endpoints over the public ingress, so a deploy that reports success
+in-cluster but isn't actually reachable gets caught immediately.
+
 ## Secret handling
 
-By default, the chart creates a release-owned Kubernetes Secret from the GitHub
-Environment secrets. Helm release metadata therefore contains the application values
-in the cluster. For a stricter separation of duties, create the application Secret
-through your infrastructure provisioning process and deploy with `existingSecret`
-set to that Secret name instead. In that mode the Secret must contain the exact keys
-listed in [`charts/billpiggy/templates/secret.yaml`](../charts/billpiggy/templates/secret.yaml).
+`existingSecret` is the default and recommended path: the **Deploy Kubernetes
+production** workflow's "Apply application secret" step `kubectl apply`s a `Secret`
+named `billpiggy-app` directly, outside Helm, then deploys the chart with
+`existingSecret=billpiggy-app`. Application secret values therefore never appear in
+`helm get values` or release metadata — only in the Secret object itself.
+
+If you deploy the chart some other way (e.g. a custom pipeline) and leave
+`existingSecret` empty, the chart falls back to creating a release-owned Secret from
+the `secrets.*` values instead, which does put those values in Helm release metadata.
+Prefer `existingSecret` whenever you control how the Secret is created; reserve the
+fallback for quick local/dev installs. Either way, the Secret must contain the exact
+keys listed in
+[`charts/billpiggy/templates/secret.yaml`](../charts/billpiggy/templates/secret.yaml).

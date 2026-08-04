@@ -1,0 +1,43 @@
+{{- if .Values.migrationsCheck.enabled }}
+# Blocks the release until the "Apply database migrations" workflow has
+# already applied every migration this image expects. helm.sh/hook-weight
+# runs this before the Deployment update (weight 0) so a stale migration
+# state fails the release instead of rolling out a schema-incompatible image.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "billpiggy.fullname" . }}-migrations-check
+  labels:
+    {{- include "billpiggy.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        {{- include "billpiggy.selectorLabels" . | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: migrations-check
+          image: "{{ required "image.repository is required" .Values.image.repository }}:{{ default .Chart.AppVersion .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          command: ["/usr/local/bin/migrate", "check"]
+          envFrom:
+            - secretRef:
+                name: {{ default (include "billpiggy.fullname" .) .Values.existingSecret }}
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 64Mi
+{{- end }}

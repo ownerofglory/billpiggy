@@ -58,7 +58,10 @@ resource "helm_release" "minio" {
   # set_sensitive so they never appear in this file or in plan/state diffs.
   values = [
     yamlencode({
-      defaultBuckets = "billpiggy"
+      # billpiggy-backups holds nightly PostgreSQL dumps and a mirror of the
+      # billpiggy bucket; see the backup CronJobs below and
+      # docs/backup-and-disaster-recovery.md.
+      defaultBuckets = "billpiggy,billpiggy-backups"
       persistence = {
         storageClass = var.storage_class
         size         = "20Gi"
@@ -70,9 +73,10 @@ resource "helm_release" "minio" {
         }
       }
       # The Bitnami chart runs a provisioning Job on install/upgrade that
-      # creates this policy and user through `mc admin`, so the application
-      # never needs the MinIO root credentials — only auth.rootUser /
-      # auth.rootPassword below do, and those stay operator-only secrets.
+      # creates these policies and users through `mc admin`, so neither the
+      # application nor the backup CronJobs ever need the MinIO root
+      # credentials — only auth.rootUser/auth.rootPassword below do, and
+      # those stay operator-only secrets.
       provisioning = {
         enabled = true
         policies = [
@@ -88,6 +92,37 @@ resource "helm_release" "minio" {
                   "s3:GetObject",
                   "s3:PutObject",
                   "s3:DeleteObject",
+                  "s3:ListBucket",
+                ]
+                effect = "Allow"
+              }
+            ]
+          },
+          {
+            name = "billpiggy-backup"
+            statements = [
+              {
+                resources = [
+                  "arn:aws:s3:::billpiggy-backups",
+                  "arn:aws:s3:::billpiggy-backups/*",
+                ]
+                actions = [
+                  "s3:GetObject",
+                  "s3:PutObject",
+                  "s3:DeleteObject",
+                  "s3:ListBucket",
+                ]
+                effect = "Allow"
+              },
+              {
+                # The bucket mirror CronJob only ever reads from billpiggy;
+                # it must never be able to write to or delete from it.
+                resources = [
+                  "arn:aws:s3:::billpiggy",
+                  "arn:aws:s3:::billpiggy/*",
+                ]
+                actions = [
+                  "s3:GetObject",
                   "s3:ListBucket",
                 ]
                 effect = "Allow"
@@ -122,5 +157,164 @@ resource "helm_release" "minio" {
   set {
     name  = "provisioning.users[0].policies[0]"
     value = "billpiggy-app"
+  }
+  set_sensitive {
+    name  = "provisioning.users[1].username"
+    value = var.minio_backup_user
+  }
+  set_sensitive {
+    name  = "provisioning.users[1].password"
+    value = var.minio_backup_password
+  }
+  set {
+    name  = "provisioning.users[1].disabled"
+    value = "false"
+  }
+  set {
+    name  = "provisioning.users[1].policies[0]"
+    value = "billpiggy-backup"
+  }
+}
+
+resource "kubernetes_cron_job_v1" "postgres_backup" {
+  metadata {
+    name      = "billpiggy-postgres-backup"
+    namespace = kubernetes_namespace_v1.infrastructure.metadata[0].name
+  }
+
+  spec {
+    schedule                      = var.postgres_backup_schedule
+    concurrency_policy            = "Forbid"
+    successful_jobs_history_limit = 3
+    failed_jobs_history_limit     = 3
+
+    job_template {
+      metadata {}
+      spec {
+        backoff_limit = 2
+        template {
+          metadata {}
+          spec {
+            restart_policy = "OnFailure"
+
+            volume {
+              name = "dump"
+              empty_dir {
+                size_limit = "1Gi"
+              }
+            }
+
+            # pg_dump and the mc upload run as separate containers sharing an
+            # emptyDir so neither image needs both tools installed at
+            # runtime; both are stock upstream images, never built or pushed
+            # from here.
+            init_container {
+              name  = "pg-dump"
+              image = "postgres:16-alpine"
+              command = ["/bin/sh", "-c", <<-EOT
+                set -eu
+                stamp=$(date -u +%Y%m%dT%H%M%SZ)
+                PGPASSWORD="$POSTGRES_PASSWORD" pg_dump \
+                  -h "${helm_release.postgresql.name}.${var.namespace}.svc.cluster.local" \
+                  -U billpiggy -d billpiggy \
+                  | gzip > "/dump/billpiggy-$${stamp}.sql.gz"
+              EOT
+              ]
+              env {
+                name  = "POSTGRES_PASSWORD"
+                value = var.postgres_password
+              }
+              volume_mount {
+                name       = "dump"
+                mount_path = "/dump"
+              }
+            }
+
+            container {
+              name  = "upload"
+              image = "minio/mc:RELEASE.2025-04-16T18-13-26Z"
+              command = ["/bin/sh", "-c", <<-EOT
+                set -eu
+                mc alias set backup "$MINIO_ENDPOINT" "$MINIO_ACCESS_KEY" "$MINIO_SECRET_KEY"
+                for f in /dump/*; do
+                  mc cp "$f" "backup/billpiggy-backups/postgres/$(basename "$f")"
+                done
+                mc rm --recursive --force --older-than "$${RETENTION_DAYS}d" backup/billpiggy-backups/postgres/ || true
+              EOT
+              ]
+              env {
+                name  = "MINIO_ENDPOINT"
+                value = "http://${helm_release.minio.name}.${var.namespace}.svc.cluster.local:9000"
+              }
+              env {
+                name  = "MINIO_ACCESS_KEY"
+                value = var.minio_backup_user
+              }
+              env {
+                name  = "MINIO_SECRET_KEY"
+                value = var.minio_backup_password
+              }
+              env {
+                name  = "RETENTION_DAYS"
+                value = tostring(var.backup_retention_days)
+              }
+              volume_mount {
+                name       = "dump"
+                mount_path = "/dump"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+resource "kubernetes_cron_job_v1" "minio_backup_mirror" {
+  metadata {
+    name      = "billpiggy-minio-backup-mirror"
+    namespace = kubernetes_namespace_v1.infrastructure.metadata[0].name
+  }
+
+  spec {
+    schedule                      = var.minio_backup_schedule
+    concurrency_policy            = "Forbid"
+    successful_jobs_history_limit = 3
+    failed_jobs_history_limit     = 3
+
+    job_template {
+      metadata {}
+      spec {
+        backoff_limit = 2
+        template {
+          metadata {}
+          spec {
+            restart_policy = "OnFailure"
+            container {
+              name  = "mirror"
+              image = "minio/mc:RELEASE.2025-04-16T18-13-26Z"
+              command = ["/bin/sh", "-c", <<-EOT
+                set -eu
+                mc alias set backup "$MINIO_ENDPOINT" "$MINIO_ACCESS_KEY" "$MINIO_SECRET_KEY"
+                mc mirror --overwrite --remove backup/billpiggy backup/billpiggy-backups/mirror
+              EOT
+              ]
+              env {
+                name  = "MINIO_ENDPOINT"
+                value = "http://${helm_release.minio.name}.${var.namespace}.svc.cluster.local:9000"
+              }
+              env {
+                name  = "MINIO_ACCESS_KEY"
+                value = var.minio_backup_user
+              }
+              env {
+                name  = "MINIO_SECRET_KEY"
+                value = var.minio_backup_password
+              }
+            }
+          }
+        }
+      }
+    }
   }
 }

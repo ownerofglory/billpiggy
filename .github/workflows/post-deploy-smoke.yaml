@@ -1,0 +1,58 @@
+name: Post-deploy smoke test
+
+on:
+  workflow_run:
+    workflows: [Deploy Kubernetes production]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      host:
+        description: Override host to check instead of the INGRESS_HOST variable
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Probe health endpoints
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-22.04
+    environment: production
+    steps:
+      - name: Resolve host
+        id: host
+        shell: bash
+        run: |
+          host="${{ inputs.host }}"
+          if [ -z "$host" ]; then
+            host="${{ vars.INGRESS_HOST }}"
+          fi
+          if [ -z "$host" ]; then
+            echo "No host resolved: set the INGRESS_HOST environment variable or pass an input." >&2
+            exit 1
+          fi
+          echo "host=$host" >> "$GITHUB_OUTPUT"
+      # Hits the public ingress over HTTPS, so this only needs network access to the
+      # deployed host — no kubeconfig or cluster access required.
+      - name: Check health endpoints
+        shell: bash
+        run: |
+          host="${{ steps.host.outputs.host }}"
+          fail=0
+          for path in livez readyz startupz; do
+            url="https://$host/$path"
+            code=$(curl -s -o /tmp/body -w '%{http_code}' --max-time 10 "$url" || echo "000")
+            if [ "$code" != "200" ]; then
+              echo "FAIL $url -> HTTP $code"
+              cat /tmp/body 2>/dev/null || true
+              fail=1
+            else
+              echo "OK   $url -> HTTP 200"
+            fi
+          done
+          if [ "$fail" -ne 0 ]; then
+            echo "One or more health checks failed for $host" >&2
+            exit 1
+          fi
