@@ -306,6 +306,18 @@ definitions:
         description: Title is what this line item was for.
         type: string
     type: object
+  domain.PaymentFrequency:
+    enum:
+    - monthly
+    - quarterly
+    - yearly
+    - custom
+    type: string
+    x-enum-varnames:
+    - PaymentMonthly
+    - PaymentQuarterly
+    - PaymentYearly
+    - PaymentCustom
   domain.Report:
     properties:
       createdAt:
@@ -340,6 +352,86 @@ definitions:
     x-enum-varnames:
     - ReportFormatCSV
     - ReportFormatPDF
+  domain.ScheduledPayment:
+    properties:
+      amountMinor:
+        description: AmountMinor is the recurring amount in the currency's minor units.
+        type: integer
+      autoPost:
+        description: |-
+          AutoPost creates a confirmed expense automatically as each occurrence
+          falls due. When false the payment only notifies, and the user records
+          the expense themselves.
+        type: boolean
+      categoryID:
+        description: CategoryID and CategoryName classify the expenses this payment
+          creates.
+        type: string
+      categoryName:
+        type: string
+      createdAt:
+        description: CreatedAt and UpdatedAt record projection timestamps.
+        type: string
+      currency:
+        description: Currency is the ISO 4217 currency code.
+        type: string
+      customIntervalDays:
+        description: |-
+          CustomIntervalDays is the gap between occurrences when Frequency is
+          PaymentCustom, and is ignored otherwise.
+        type: integer
+      deletedAt:
+        description: DeletedAt marks a soft-deleted payment.
+        type: string
+      endDate:
+        description: EndDate optionally stops the recurrence; occurrences after it
+          never run.
+        type: string
+      frequency:
+        allOf:
+        - $ref: '#/definitions/domain.PaymentFrequency'
+        description: Frequency is how often the payment recurs.
+      id:
+        description: ID identifies the scheduled payment.
+        type: string
+      lastPostedAt:
+        description: LastPostedAt is when an occurrence last fell due, if one ever
+          has.
+        type: string
+      nextDueAt:
+        description: NextDueAt is the next occurrence the scheduler has yet to handle.
+        type: string
+      ownerID:
+        description: OwnerID is the user the payment belongs to.
+        type: string
+      paused:
+        description: Paused suspends the payment without deleting it.
+        type: boolean
+      reminderDaysBefore:
+        description: |-
+          ReminderDaysBefore sends an advance notice this many days before an
+          occurrence. Zero disables the advance notice.
+        type: integer
+      sharedGroupID:
+        description: |-
+          SharedGroupID optionally shares the payment, and the expenses it
+          creates, with a user group.
+        type: string
+      startDate:
+        description: StartDate is the first occurrence and the permanent recurrence
+          anchor.
+        type: string
+      tagIDs:
+        description: TagIDs are copied onto every expense this payment creates.
+        items:
+          type: string
+        type: array
+      title:
+        description: Title is the display name, e.g. "Rent".
+        type: string
+      updatedAt:
+        type: string
+    type: object
   domain.UserGroup:
     properties:
       createdAt:
@@ -504,6 +596,39 @@ definitions:
         type: string
       email_notifications_enabled:
         type: boolean
+    type: object
+  handler.scheduledPaymentRequest:
+    properties:
+      amount_minor:
+        type: integer
+      auto_post:
+        type: boolean
+      category_id:
+        type: string
+      category_name:
+        type: string
+      currency:
+        type: string
+      custom_interval_days:
+        type: integer
+      end_date:
+        type: string
+      frequency:
+        $ref: '#/definitions/domain.PaymentFrequency'
+      paused:
+        type: boolean
+      reminder_days_before:
+        type: integer
+      shared_group_id:
+        type: string
+      start_date:
+        type: string
+      tag_ids:
+        items:
+          type: string
+        type: array
+      title:
+        type: string
     type: object
   handler.sessionResponse:
     properties:
@@ -1511,6 +1636,144 @@ paths:
       summary: Download a generated report
       tags:
       - reports
+  /billpiggy/api/v1/scheduled-payments/:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/domain.ScheduledPayment'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List scheduled payments
+      tags:
+      - scheduled-payments
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Scheduled payment
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.scheduledPaymentRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/domain.ScheduledPayment'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create scheduled payment
+      tags:
+      - scheduled-payments
+  /billpiggy/api/v1/scheduled-payments/{paymentID}:
+    delete:
+      parameters:
+      - description: Scheduled payment ID
+        in: path
+        name: paymentID
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete scheduled payment
+      tags:
+      - scheduled-payments
+    get:
+      parameters:
+      - description: Scheduled payment ID
+        in: path
+        name: paymentID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/domain.ScheduledPayment'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get scheduled payment
+      tags:
+      - scheduled-payments
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Scheduled payment ID
+        in: path
+        name: paymentID
+        required: true
+        type: string
+      - description: Scheduled payment
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.scheduledPaymentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/domain.ScheduledPayment'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update scheduled payment
+      tags:
+      - scheduled-payments
   /billpiggy/api/v1/taxonomy/categories:
     get:
       produces:

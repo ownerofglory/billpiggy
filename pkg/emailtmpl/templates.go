@@ -11,6 +11,7 @@ var subjects = map[string]string{
 	"budget_alert":   "Budget alert: {{.budget_name}}",
 	"report_ready":   "Your {{.period_kind}} report is ready",
 	"access_changed": "Your BillPiggy account access has changed",
+	"payment_due":    "{{if eq .reminder \"true\"}}Upcoming payment{{else}}Payment due{{end}}: {{.payment_title}}",
 }
 
 var textBodies = map[string]string{
@@ -35,6 +36,15 @@ Role: {{.role}}
 Access blocked: {{.blocked}}
 
 If you did not expect this change, contact your administrator.`,
+
+	"payment_due": `Your {{.frequency}} payment "{{.payment_title}}" {{if eq .reminder "true"}}is coming up on {{.due_at}}{{else}}was due on {{.due_at}}{{end}}.
+
+Amount: {{.amount_minor}} {{.currency}} (minor units)
+{{if eq .auto_posted "true"}}
+BillPiggy has already recorded this expense for you.
+{{else}}
+Sign in to BillPiggy to record this expense once you have paid it.
+{{end}}`,
 }
 
 var htmlBodies = map[string]string{
@@ -58,4 +68,10 @@ var htmlBodies = map[string]string{
 <li>Access blocked: {{.blocked}}</li>
 </ul>
 <p>If you did not expect this change, contact your administrator.</p>`,
+
+	"payment_due": `<p>Your {{.frequency}} payment "<strong>{{.payment_title}}</strong>" {{if eq .reminder "true"}}is coming up on {{.due_at}}{{else}}was due on {{.due_at}}{{end}}.</p>
+<ul>
+<li>Amount: {{.amount_minor}} {{.currency}} (minor units)</li>
+</ul>
+{{if eq .auto_posted "true"}}<p>BillPiggy has already recorded this expense for you.</p>{{else}}<p>Sign in to BillPiggy to record this expense once you have paid it.</p>{{end}}`,
 }

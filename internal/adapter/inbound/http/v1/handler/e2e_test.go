@@ -28,7 +28,10 @@ type e2eApp struct {
 	identity      *memory.IdentityRepository
 	notifications *memory.NotificationRepository
 	reportService *service.ReportService
-	engines       []*outbox.Engine
+	// scheduledPaymentService is held so a flow test can drive the recurring
+	// payment scheduler directly; nothing serves it over HTTP.
+	scheduledPaymentService *service.ScheduledPaymentService
+	engines                 []*outbox.Engine
 }
 
 func newE2EApp(t *testing.T, assistantAnswer string) *e2eApp {
@@ -47,8 +50,9 @@ func newE2EApp(t *testing.T, assistantAnswer string) *e2eApp {
 	objectRefs := memory.NewObjectReferenceRepository()
 	aiRequests := memory.NewAIRequestRepository()
 	reports := memory.NewReportRepository()
+	scheduledPayments := memory.NewScheduledPaymentRepository()
 	events := memory.NewEventStore()
-	unit := memory.NewUnitOfWork(expenses, budgets, analytics, budgetUsage, audit, notifications, objectRefs, taxonomy, reports, events)
+	unit := memory.NewUnitOfWork(expenses, budgets, analytics, budgetUsage, audit, notifications, objectRefs, taxonomy, reports, scheduledPayments, events)
 	events.WithUnitOfWork(unit)
 
 	authService, err := service.NewAuthService(identity, service.AuthConfig{
@@ -99,8 +103,16 @@ func newE2EApp(t *testing.T, assistantAnswer string) *e2eApp {
 	if err != nil {
 		t.Fatalf("build assistant service: %v", err)
 	}
+	scheduledPaymentService, err := service.NewScheduledPaymentService(scheduledPayments, events, groups, unit)
+	if err != nil {
+		t.Fatalf("build scheduled payment service: %v", err)
+	}
+	scheduledPaymentService = scheduledPaymentService.
+		WithExpensePosting(expenses).
+		WithNotifications(notifications).
+		WithTaxonomy(taxonomy)
 
-	app := &e2eApp{identity: identity, notifications: notifications, reportService: reportService}
+	app := &e2eApp{identity: identity, notifications: notifications, reportService: reportService, scheduledPaymentService: scheduledPaymentService}
 
 	analyticsProjection, err := service.NewAnalyticsProjection(analytics)
 	if err != nil {
@@ -132,6 +144,7 @@ func newE2EApp(t *testing.T, assistantAnswer string) *e2eApp {
 	handler.RegisterUploadRoutes(router, authService, expenseService, objectStore, middleware)
 	handler.RegisterExpenseRoutes(router, expenseService, middleware)
 	handler.RegisterBudgetRoutes(router, budgetService, middleware)
+	handler.RegisterScheduledPaymentRoutes(router, scheduledPaymentService, middleware)
 	handler.RegisterAnalyticsRoutes(router, analyticsService, middleware)
 	handler.RegisterTaxonomyRoutes(router, taxonomyService, middleware)
 	handler.RegisterGroupRoutes(router, groupService, middleware)

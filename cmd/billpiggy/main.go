@@ -75,6 +75,7 @@ type stores struct {
 	objectRefs    outbound.ObjectReferenceRepository
 	aiRequests    outbound.AIRequestRepository
 	reports       outbound.ReportRepository
+	payments      outbound.ScheduledPaymentRepository
 	events        outbound.EventStore
 	outboxStore   outbox.Store
 	subscriptions subscriptionRegistrar
@@ -218,6 +219,16 @@ func main() {
 		os.Exit(1)
 	}
 	go generateReports(ctx, reportService)
+	scheduledPaymentService, err := service.NewScheduledPaymentService(adapters.payments, adapters.events, adapters.groups, adapters.unit)
+	if err != nil {
+		slog.Error("configure scheduled payments", "error", err)
+		os.Exit(1)
+	}
+	scheduledPaymentService = scheduledPaymentService.
+		WithExpensePosting(adapters.expenses).
+		WithNotifications(adapters.notifications).
+		WithTaxonomy(adapters.taxonomy)
+	go postDuePayments(ctx, scheduledPaymentService)
 	if adapters.pool != nil {
 		go cleanupRateLimitWindows(ctx, postgresadapter.NewRateLimiter(adapters.pool, 0, 0))
 	}
@@ -288,6 +299,7 @@ func main() {
 	handler.RegisterExpenseRoutes(r, expenseService, handler.NewAuthMiddleware(authService))
 	handler.RegisterExpenseIntakeRoutes(r, intakeService, authService, handler.NewAuthMiddleware(authService))
 	handler.RegisterBudgetRoutes(r, budgetService, handler.NewAuthMiddleware(authService))
+	handler.RegisterScheduledPaymentRoutes(r, scheduledPaymentService, handler.NewAuthMiddleware(authService))
 	handler.RegisterAnalyticsRoutes(r, analyticsService, handler.NewAuthMiddleware(authService))
 	handler.RegisterTaxonomyRoutes(r, taxonomyService, handler.NewAuthMiddleware(authService))
 	handler.RegisterGroupRoutes(r, groupService, handler.NewAuthMiddleware(authService))
@@ -418,6 +430,7 @@ func applicationStores(cfg config.BillPiggyAppConfig, healthRegistry *health.Reg
 		objectRefs:    postgresadapter.NewObjectReferenceRepository(pool),
 		aiRequests:    postgresadapter.NewAIRequestRepository(pool),
 		reports:       postgresadapter.NewReportRepository(pool),
+		payments:      postgresadapter.NewScheduledPaymentRepository(pool),
 		events:        postgresadapter.NewEventStore(pool),
 		outboxStore:   outboxStore,
 		subscriptions: outboxStore,
@@ -441,8 +454,9 @@ func memoryStores() stores {
 	objectRefs := memory.NewObjectReferenceRepository()
 	aiRequests := memory.NewAIRequestRepository()
 	reports := memory.NewReportRepository()
+	payments := memory.NewScheduledPaymentRepository()
 	events := memory.NewEventStore()
-	unit := memory.NewUnitOfWork(expenses, budgets, analytics, budgetUsage, audit, notifications, objectRefs, taxonomy, reports, events)
+	unit := memory.NewUnitOfWork(expenses, budgets, analytics, budgetUsage, audit, notifications, objectRefs, taxonomy, reports, payments, events)
 	events.WithUnitOfWork(unit)
 	return stores{
 		unit:          unit,
@@ -458,6 +472,7 @@ func memoryStores() stores {
 		objectRefs:    objectRefs,
 		aiRequests:    aiRequests,
 		reports:       reports,
+		payments:      payments,
 		events:        events,
 		outboxStore:   events,
 		subscriptions: events,
@@ -500,6 +515,31 @@ func generateReports(ctx context.Context, reports *service.ReportService) {
 			slog.Error("generate due reports", "error", err)
 		} else if generated > 0 {
 			slog.Info("generated due reports", "count", generated)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+// postDuePayments periodically runs every scheduled payment that has come
+// due and sends the advance notices for those about to.
+//
+// The tick is finer than the report scheduler's because a payment reminder is
+// time-sensitive in a way a monthly report is not: a "rent due tomorrow"
+// notice that lands eleven hours late has lost most of its value. Redundant
+// ticks are cheap — PostDue's ledger check means an occurrence already handled
+// costs one insert that conflicts, and no expense or email.
+func postDuePayments(ctx context.Context, payments *service.ScheduledPaymentService) {
+	ticker := time.NewTicker(15 * time.Minute)
+	defer ticker.Stop()
+	for {
+		if posted, err := payments.PostDue(ctx, time.Now()); err != nil {
+			slog.Error("post due scheduled payments", "error", err)
+		} else if posted > 0 {
+			slog.Info("posted due scheduled payments", "count", posted)
 		}
 		select {
 		case <-ctx.Done():

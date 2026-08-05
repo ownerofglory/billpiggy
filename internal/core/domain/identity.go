@@ -20,6 +20,8 @@ const (
 	PermissionExpensesDelete Permission = "expenses:delete"
 	PermissionBudgetsRead    Permission = "budgets:read"
 	PermissionBudgetsWrite   Permission = "budgets:write"
+	PermissionPaymentsRead   Permission = "payments:read"
+	PermissionPaymentsWrite  Permission = "payments:write"
 	PermissionAnalyticsRead  Permission = "analytics:read"
 	PermissionUsersInvite    Permission = "users:invite"
 	PermissionUsersManage    Permission = "users:manage"
@@ -39,7 +41,8 @@ func (r UserRole) Allows(permission Permission) bool {
 	case RoleMember:
 		switch permission {
 		case PermissionExpensesRead, PermissionExpensesWrite, PermissionExpensesDelete,
-			PermissionBudgetsRead, PermissionBudgetsWrite, PermissionAnalyticsRead:
+			PermissionBudgetsRead, PermissionBudgetsWrite, PermissionAnalyticsRead,
+			PermissionPaymentsRead, PermissionPaymentsWrite:
 			return true
 		}
 	}
