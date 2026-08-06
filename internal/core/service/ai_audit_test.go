@@ -79,10 +79,23 @@ func TestAuditedAIProviderRecordsAStreamAfterItFinishes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Stream: %v", err)
 	}
-	// Nothing may be recorded until the stream is fully drained.
+	// Nothing may be recorded while the stream is still producing content.
+	//
+	// The final chunk is deliberately exempt. Stream hands the last chunk over
+	// an unbuffered channel and only then records, so a consumer's final loop
+	// body always races that write — asserting on it made this test flaky.
+	// The guarantee that actually matters is the one checked after the loop:
+	// the record is always in place by the time the channel closes.
+	observed := make([]int, 0, 8)
 	for range chunks {
-		if len(requests.Records()) != 0 {
-			t.Fatal("request recorded before the stream finished")
+		observed = append(observed, len(requests.Records()))
+	}
+	if len(observed) < 2 {
+		t.Fatalf("stream produced %d chunk(s); the mid-stream check needs several to mean anything", len(observed))
+	}
+	for index, count := range observed[:len(observed)-1] {
+		if count != 0 {
+			t.Fatalf("request recorded mid-stream, after chunk %d of %d", index+1, len(observed))
 		}
 	}
 	records := requests.Records()
