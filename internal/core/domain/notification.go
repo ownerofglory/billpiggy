@@ -15,6 +15,14 @@ const (
 	// NotificationAccessChanged is sent when an administrator changes a
 	// user's role or blocks/unblocks their access.
 	NotificationAccessChanged NotificationKind = "access_changed"
+	// NotificationPaymentDue is sent when a scheduled payment falls due, and
+	// as its advance reminder when one is configured.
+	NotificationPaymentDue NotificationKind = "payment_due"
+	// NotificationPasswordReset carries the one-time link or code to set a
+	// new password. Always sent, like NotificationAccessChanged: the
+	// recipient explicitly requested it, so a muted preference must not
+	// silently swallow it.
+	NotificationPasswordReset NotificationKind = "password_reset"
 )
 
 // NotificationDelivery is an asynchronous email delivery request.

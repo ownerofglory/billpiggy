@@ -69,7 +69,7 @@ func applyMigrations(t *testing.T, pool *pgxpool.Pool) {
 	}
 	// Start from nothing, so every run exercises the migrations exactly as a
 	// fresh deployment does rather than assuming a pre-existing schema.
-	if _, err := pool.Exec(context.Background(), `drop schema if exists events, identity, expenses, budgets, analytics, reports, notifications, audit, files, ratelimit, ai cascade; drop table if exists public.schema_migrations`); err != nil {
+	if _, err := pool.Exec(context.Background(), `drop schema if exists events, identity, expenses, budgets, analytics, reports, notifications, audit, files, ratelimit, ai, payments cascade; drop table if exists public.schema_migrations`); err != nil {
 		t.Fatalf("reset schema: %v", err)
 	}
 	if _, err := pool.Exec(context.Background(), `create table public.schema_migrations (version text primary key, applied_at timestamptz not null default now())`); err != nil {

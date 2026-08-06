@@ -15,32 +15,32 @@ const (
 // ExpenseRecord is the expense write and read model. Monetary values are stored in
 // minor currency units to avoid floating-point loss.
 type ExpenseRecord struct {
-	ID               string
-	OwnerID          string
-	Title            string
-	AmountMinor      int64
-	Currency         string
-	OccurredAt       time.Time
-	CategoryID       string
-	CategoryName     string
-	TagIDs           []string
-	Status           ExpenseStatus
-	SharedGroupID    string
-	Items            []ExpenseItem
-	Latitude         *float64
-	Longitude        *float64
-	Address          string
-	ReceiptObjectKey string
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
-	DeletedAt        *time.Time
+	ID               string        `json:"id"`
+	OwnerID          string        `json:"ownerID"`
+	Title            string        `json:"title"`
+	AmountMinor      int64         `json:"amountMinor"`
+	Currency         string        `json:"currency"`
+	OccurredAt       time.Time     `json:"occurredAt"`
+	CategoryID       string        `json:"categoryID"`
+	CategoryName     string        `json:"categoryName"`
+	TagIDs           []string      `json:"tagIDs"`
+	Status           ExpenseStatus `json:"status"`
+	SharedGroupID    string        `json:"sharedGroupID"`
+	Items            []ExpenseItem `json:"items"`
+	Latitude         *float64      `json:"latitude"`
+	Longitude        *float64      `json:"longitude"`
+	Address          string        `json:"address"`
+	ReceiptObjectKey string        `json:"receiptObjectKey"`
+	CreatedAt        time.Time     `json:"createdAt"`
+	UpdatedAt        time.Time     `json:"updatedAt"`
+	DeletedAt        *time.Time    `json:"deletedAt"`
 }
 
 // ExpenseItem is a line item parsed from or entered for a receipt.
 type ExpenseItem struct {
-	Title       string
-	Quantity    string
-	AmountMinor int64
+	Title       string `json:"title"`
+	Quantity    string `json:"quantity"`
+	AmountMinor int64  `json:"amountMinor"`
 }
 
 // ExpenseAdded is emitted once when an expense is created.

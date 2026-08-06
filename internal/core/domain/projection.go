@@ -68,19 +68,19 @@ type BudgetUsage struct {
 // AuditEntry is an immutable record of one domain event.
 type AuditEntry struct {
 	// EventID is the source event, used to make replay idempotent.
-	EventID string
+	EventID string `json:"eventID"`
 	// ActorID is the user who caused the event, when known.
-	ActorID string
+	ActorID string `json:"actorID"`
 	// Action is the event type that produced the entry.
-	Action string
+	Action string `json:"action"`
 	// ResourceType is the aggregate type the event belongs to.
-	ResourceType string
+	ResourceType string `json:"resourceType"`
 	// ResourceID is the aggregate the event belongs to.
-	ResourceID string
+	ResourceID string `json:"resourceID"`
 	// Metadata carries additional non-indexed context.
-	Metadata map[string]string
+	Metadata map[string]string `json:"metadata"`
 	// OccurredAt is when the command produced the event.
-	OccurredAt time.Time
+	OccurredAt time.Time `json:"occurredAt"`
 }
 
 // BudgetAlert describes a budget threshold that has just been crossed.

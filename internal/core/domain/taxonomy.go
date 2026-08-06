@@ -5,27 +5,27 @@ import "time"
 // ExpenseCategory groups expenses and may be a system default or user-owned value.
 type ExpenseCategory struct {
 	// ID identifies the category.
-	ID string
+	ID string `json:"id"`
 	// Name is the display name.
-	Name string
+	Name string `json:"name"`
 	// Color is an optional hex swatch used by clients.
-	Color string
+	Color string `json:"color"`
 	// IsDefault marks a category the application ships for every user.
-	IsDefault bool
+	IsDefault bool `json:"isDefault"`
 	// CreatedAt is when the category was created.
-	CreatedAt time.Time
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 // ExpenseTag is a user-owned label that can be attached to expenses.
 type ExpenseTag struct {
 	// ID identifies the tag.
-	ID string
+	ID string `json:"id"`
 	// Name is the display name.
-	Name string
+	Name string `json:"name"`
 	// Color is an optional hex swatch used by clients.
-	Color string
+	Color string `json:"color"`
 	// CreatedAt is when the tag was created.
-	CreatedAt time.Time
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 // DefaultCategories returns the categories every user starts with.

@@ -27,4 +27,13 @@ type IdentityRepository interface {
 	// after a password change so a stolen or leaked refresh token stops
 	// working immediately rather than surviving until it next expires.
 	RevokeAllRefreshTokens(ctx context.Context, userID string) error
+
+	GetPasswordResetByTokenHash(ctx context.Context, tokenHash string) (domain.PasswordReset, error)
+	CreatePasswordReset(ctx context.Context, reset domain.PasswordReset) error
+	MarkPasswordResetUsed(ctx context.Context, resetID string) error
+	// InvalidatePendingPasswordResets marks every unused, unexpired reset for
+	// userID as used, so a successful reset or an ordinary password change
+	// immediately closes out any other outstanding reset link for the same
+	// account instead of leaving it redeemable until it expires on its own.
+	InvalidatePendingPasswordResets(ctx context.Context, userID string) error
 }

@@ -22,6 +22,8 @@ type AuthService interface {
 	UpdateProfile(ctx context.Context, userID, displayName, email string, notifications, aiEnabled bool) (domain.AppUser, error)
 	UpdateNotificationPreferences(ctx context.Context, userID string, preferences map[domain.NotificationKind]bool) (domain.AppUser, error)
 	ChangePassword(ctx context.Context, userID, currentPassword, newPassword string) error
+	RequestPasswordReset(ctx context.Context, email string) error
+	ResetPassword(ctx context.Context, rawToken, newPassword string) error
 	GetProfile(ctx context.Context, userID string) (domain.AppUser, error)
 	UpdateProfileImage(ctx context.Context, userID, objectKey string) (domain.AppUser, error)
 	ManageUser(ctx context.Context, actor domain.AppUser, userID string, role domain.UserRole, blocked bool) (domain.AppUser, error)

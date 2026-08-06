@@ -19,26 +19,30 @@ const (
 // ExpenseRollup is a precomputed analytics value owned by one user.
 type ExpenseRollup struct {
 	// OwnerID identifies the user whose expenses were aggregated.
-	OwnerID string
+	OwnerID string `json:"ownerID"`
 	// PeriodStart is the inclusive start of the aggregation window.
-	PeriodStart time.Time
+	PeriodStart time.Time `json:"periodStart"`
 	// Period identifies the rollup window size.
-	Period AnalyticsPeriod
+	Period AnalyticsPeriod `json:"period"`
 	// CategoryID optionally identifies the aggregated category.
-	CategoryID string
+	CategoryID string `json:"categoryID"`
 	// TagID optionally identifies the aggregated tag.
-	TagID string
+	TagID string `json:"tagID"`
 	// Currency is the ISO 4217 currency code.
-	Currency string
+	Currency string `json:"currency"`
 	// AmountMinor is the aggregate in currency minor units.
-	AmountMinor int64
+	AmountMinor int64 `json:"amountMinor"`
 	// ExpenseCount is the number of included expenses.
-	ExpenseCount int64
+	ExpenseCount int64 `json:"expenseCount"`
 }
 
 // BudgetSuggestion identifies a budget that is approaching or over its threshold.
 type BudgetSuggestion struct {
-	BudgetID, CategoryID, Currency, Message string
-	SpentMinor, LimitMinor                  int64
-	PercentUsed                             int
+	BudgetID    string `json:"budgetID"`
+	CategoryID  string `json:"categoryID"`
+	Currency    string `json:"currency"`
+	Message     string `json:"message"`
+	SpentMinor  int64  `json:"spentMinor"`
+	LimitMinor  int64  `json:"limitMinor"`
+	PercentUsed int    `json:"percentUsed"`
 }

@@ -14,6 +14,7 @@ func TestRenderEveryRegisteredKind(t *testing.T) {
 		"budget_alert":   {"budget_name": "Groceries", "currency": "EUR", "spent_minor": "12000", "limit_minor": "10000", "percent_used": "120", "exceeded": "true", "period_start": "2026-08-01T00:00:00Z"},
 		"report_ready":   {"period_kind": "week", "period_start": "2026-07-27T00:00:00Z"},
 		"access_changed": {"role": "admin", "blocked": "false"},
+		"password_reset": {"token": "abc", "reset_url": "https://app.example.com/reset-password?token=abc", "expires_at": "2026-08-12T00:00:00Z"},
 	}
 	for kind, payload := range cases {
 		t.Run(kind, func(t *testing.T) {

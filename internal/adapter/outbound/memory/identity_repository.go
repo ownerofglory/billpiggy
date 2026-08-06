@@ -14,13 +14,15 @@ var errNotFound = errors.New("not found")
 
 // IdentityRepository is an in-memory implementation of the identity outbound port.
 type IdentityRepository struct {
-	mu                 sync.RWMutex
-	usersByID          map[string]domain.AppUser
-	userIDByEmail      map[string]string
-	invitationsByID    map[string]domain.Invitation
-	invitationIDByHash map[string]string
-	refreshByID        map[string]domain.RefreshToken
-	refreshIDByHash    map[string]string
+	mu                  sync.RWMutex
+	usersByID           map[string]domain.AppUser
+	userIDByEmail       map[string]string
+	invitationsByID     map[string]domain.Invitation
+	invitationIDByHash  map[string]string
+	refreshByID         map[string]domain.RefreshToken
+	refreshIDByHash     map[string]string
+	passwordResetsByID  map[string]domain.PasswordReset
+	passwordResetByHash map[string]string
 }
 
 // NewIdentityRepository creates an empty repository.
@@ -29,6 +31,7 @@ func NewIdentityRepository() *IdentityRepository {
 		usersByID: make(map[string]domain.AppUser), userIDByEmail: make(map[string]string),
 		invitationsByID: make(map[string]domain.Invitation), invitationIDByHash: make(map[string]string),
 		refreshByID: make(map[string]domain.RefreshToken), refreshIDByHash: make(map[string]string),
+		passwordResetsByID: make(map[string]domain.PasswordReset), passwordResetByHash: make(map[string]string),
 	}
 }
 
@@ -225,6 +228,54 @@ func (r *IdentityRepository) RevokeAllRefreshTokens(_ context.Context, userID st
 		if token.UserID == userID && token.RevokedAt == nil {
 			token.RevokedAt = &now
 			r.refreshByID[id] = token
+		}
+	}
+	return nil
+}
+
+func (r *IdentityRepository) GetPasswordResetByTokenHash(_ context.Context, tokenHash string) (domain.PasswordReset, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	id, ok := r.passwordResetByHash[tokenHash]
+	if !ok {
+		return domain.PasswordReset{}, errNotFound
+	}
+	return r.passwordResetsByID[id], nil
+}
+
+func (r *IdentityRepository) CreatePasswordReset(_ context.Context, reset domain.PasswordReset) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, exists := r.passwordResetByHash[reset.TokenHash]; exists {
+		return errors.New("password reset token already exists")
+	}
+	r.passwordResetsByID[reset.ID] = reset
+	r.passwordResetByHash[reset.TokenHash] = reset.ID
+	return nil
+}
+
+func (r *IdentityRepository) MarkPasswordResetUsed(_ context.Context, resetID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	reset, ok := r.passwordResetsByID[resetID]
+	if !ok {
+		return errNotFound
+	}
+	now := time.Now()
+	reset.UsedAt = &now
+	r.passwordResetsByID[resetID] = reset
+	return nil
+}
+
+// InvalidatePendingPasswordResets marks every unused reset for userID as used.
+func (r *IdentityRepository) InvalidatePendingPasswordResets(_ context.Context, userID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := time.Now()
+	for id, reset := range r.passwordResetsByID {
+		if reset.UserID == userID && reset.UsedAt == nil {
+			reset.UsedAt = &now
+			r.passwordResetsByID[id] = reset
 		}
 	}
 	return nil

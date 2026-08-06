@@ -32,11 +32,16 @@ var (
 
 // AuthConfig controls token expiry and required bootstrap credentials.
 type AuthConfig struct {
-	JWTSecret                   string
-	Issuer                      string
-	AccessTokenTTL              time.Duration
-	RefreshTokenTTL             time.Duration
-	InvitationTTL               time.Duration
+	JWTSecret       string
+	Issuer          string
+	AccessTokenTTL  time.Duration
+	RefreshTokenTTL time.Duration
+	InvitationTTL   time.Duration
+	// PasswordResetTTL bounds how long a requested reset link stays valid.
+	// Deliberately much shorter than InvitationTTL: a leaked reset link is
+	// immediately dangerous to an existing account, where a leaked invitation
+	// only lets someone claim a role nobody has used yet.
+	PasswordResetTTL            time.Duration
 	BootstrapSuperAdminEmail    string
 	BootstrapSuperAdminPassword string
 	// PublicBaseURL, when set, lets Invite build a clickable accept-invitation
@@ -77,6 +82,9 @@ func NewAuthService(repository outbound.IdentityRepository, config AuthConfig) (
 	}
 	if config.InvitationTTL <= 0 {
 		config.InvitationTTL = 7 * 24 * time.Hour
+	}
+	if config.PasswordResetTTL <= 0 {
+		config.PasswordResetTTL = time.Hour
 	}
 
 	return &AuthService{repository: repository, config: config, now: time.Now, ids: uuid.NewString}, nil
@@ -364,7 +372,98 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID, currentPasswor
 	if err := s.repository.UpdateUser(ctx, user); err != nil {
 		return err
 	}
+	// An ordinary password change closes out any reset link still
+	// outstanding for this account, the same way it revokes refresh tokens:
+	// the old credential material that link was issued to prove is gone.
+	if err := s.repository.InvalidatePendingPasswordResets(ctx, userID); err != nil {
+		return fmt.Errorf("invalidate pending password resets: %w", err)
+	}
 	return s.repository.RevokeAllRefreshTokens(ctx, userID)
+}
+
+// RequestPasswordReset issues a one-time password reset link for email, if
+// an account with that email exists and is not blocked.
+//
+// A missing account and a blocked account both return nil, the same as
+// success: this must not let a caller enumerate registered emails by
+// checking whether the response (or its timing) differs. A genuine
+// infrastructure failure while queuing the email is returned as an error so
+// the HTTP handler can log it, but the handler must still answer the caller
+// identically either way — see handler.authHandler.requestPasswordReset.
+func (s *AuthService) RequestPasswordReset(ctx context.Context, email string) error {
+	user, err := s.repository.GetUserByEmail(ctx, normalizeEmail(email))
+	if err != nil || user.AccessBlocked {
+		return nil
+	}
+	rawToken, err := randomToken()
+	if err != nil {
+		return err
+	}
+	now := s.now()
+	reset := domain.PasswordReset{
+		ID: s.ids(), UserID: user.ID, TokenHash: tokenHash(rawToken),
+		ExpiresAt: now.Add(s.config.PasswordResetTTL), CreatedAt: now,
+	}
+	if err := s.repository.CreatePasswordReset(ctx, reset); err != nil {
+		return fmt.Errorf("create password reset: %w", err)
+	}
+	return s.queuePasswordResetEmail(ctx, user, rawToken, reset.ExpiresAt)
+}
+
+// queuePasswordResetEmail queues the password-reset notification. Like
+// queueInvitationEmail, its payload necessarily carries the raw token — the
+// reset row only ever stores a one-way hash of it — and addresses the
+// delivery directly by RecipientEmail rather than UserID so it bypasses the
+// recipient's own notification preferences the same way access_changed does:
+// a reset the user explicitly requested must never be silently muted.
+func (s *AuthService) queuePasswordResetEmail(ctx context.Context, user domain.AppUser, rawToken string, expiresAt time.Time) error {
+	if s.notifications == nil {
+		return nil
+	}
+	payload := map[string]string{
+		"token":      rawToken,
+		"expires_at": expiresAt.Format(time.RFC3339),
+	}
+	if s.config.PublicBaseURL != "" {
+		payload["reset_url"] = strings.TrimRight(s.config.PublicBaseURL, "/") + "/reset-password?token=" + rawToken
+	}
+	return s.notifications.QueueNotification(ctx, domain.NotificationDelivery{
+		ID: s.ids(), RecipientEmail: user.Email, Kind: domain.NotificationPasswordReset, Payload: payload, CreatedAt: s.now(), Status: domain.NotificationPending,
+	})
+}
+
+// ResetPassword completes a reset started by RequestPasswordReset: verifies
+// rawToken, sets newPassword, and — exactly as ChangePassword does — revokes
+// every live refresh token and closes out any other pending reset for the
+// account, so a stolen session or a second leaked reset link cannot survive
+// this one being used.
+func (s *AuthService) ResetPassword(ctx context.Context, rawToken, newPassword string) error {
+	reset, err := s.repository.GetPasswordResetByTokenHash(ctx, tokenHash(rawToken))
+	if err != nil || reset.UsedAt != nil || !reset.ExpiresAt.After(s.now()) {
+		return ErrUnauthorized
+	}
+	if len(newPassword) < 12 {
+		return ErrConflict
+	}
+	user, err := s.repository.GetUserByID(ctx, reset.UserID)
+	if err != nil || user.AccessBlocked {
+		return ErrUnauthorized
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("hash password: %w", err)
+	}
+	user.PasswordHash, user.UpdatedAt = string(hash), s.now()
+	if err := s.repository.UpdateUser(ctx, user); err != nil {
+		return err
+	}
+	if err := s.repository.MarkPasswordResetUsed(ctx, reset.ID); err != nil {
+		return fmt.Errorf("mark password reset used: %w", err)
+	}
+	if err := s.repository.InvalidatePendingPasswordResets(ctx, user.ID); err != nil {
+		return fmt.Errorf("invalidate pending password resets: %w", err)
+	}
+	return s.repository.RevokeAllRefreshTokens(ctx, user.ID)
 }
 
 // GetProfile returns the current user's profile projection.

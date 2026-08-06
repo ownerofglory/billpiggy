@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -24,6 +25,8 @@ func RegisterAuthRoutes(router chi.Router, authService inbound.AuthService, cook
 		routes.Post("/refresh", handler.refresh)
 		routes.Post("/logout", handler.logout)
 		routes.Post("/invitations/accept", handler.acceptInvitation)
+		routes.Post("/password-reset", handler.requestPasswordReset)
+		routes.Post("/password-reset/confirm", handler.confirmPasswordReset)
 		routes.With(middleware.RequireAuthentication).Get("/me", handler.me)
 		routes.With(middleware.RequireAuthentication, func(next http.Handler) http.Handler {
 			return middleware.RequirePermission(string(domain.PermissionUsersInvite), next)
@@ -152,6 +155,59 @@ func (h authHandler) invite(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusAccepted)
 }
 
+// requestPasswordReset queues a one-time reset email when the address
+// belongs to an account.
+//
+// It always responds 202, whether or not the account exists and whether or
+// not queuing succeeded: any difference in the response — status code,
+// body, or timing — would let a caller enumerate registered emails. A real
+// failure is only logged server-side.
+//
+//	@Summary	Request password reset
+//	@Tags		auth
+//	@Accept		json
+//	@Param		request	body	passwordResetRequestBody	true	"Email"
+//	@Success	202
+//	@Router		/billpiggy/api/v1/auth/password-reset [post]
+func (h authHandler) requestPasswordReset(w http.ResponseWriter, r *http.Request) {
+	var request passwordResetRequestBody
+	if !decodeJSON(w, r, &request) {
+		return
+	}
+	if err := h.service.RequestPasswordReset(r.Context(), request.Email); err != nil {
+		slog.Error("request password reset", "error", err)
+	}
+	w.WriteHeader(http.StatusAccepted)
+}
+
+// confirmPasswordReset sets a new password from the token emailed by
+// requestPasswordReset.
+//
+//	@Summary	Confirm password reset
+//	@Tags		auth
+//	@Accept		json
+//	@Param		request	body	passwordResetConfirmRequest	true	"Reset token and new password"
+//	@Success	204
+//	@Failure	400	{object}	map[string]string
+//	@Failure	401	{object}	map[string]string
+//	@Router		/billpiggy/api/v1/auth/password-reset/confirm [post]
+func (h authHandler) confirmPasswordReset(w http.ResponseWriter, r *http.Request) {
+	var request passwordResetConfirmRequest
+	if !decodeJSON(w, r, &request) {
+		return
+	}
+	err := h.service.ResetPassword(r.Context(), request.Token, request.NewPassword)
+	if errors.Is(err, service.ErrUnauthorized) {
+		writeJSONError(w, http.StatusUnauthorized, "reset token is invalid or expired")
+		return
+	}
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, "password could not be reset")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // me returns the authenticated user's identity.
 //
 //	@Summary	Get current user
@@ -217,6 +273,13 @@ type acceptInvitationRequest struct {
 type invitationRequest struct {
 	Email string          `json:"email"`
 	Role  domain.UserRole `json:"role"`
+}
+type passwordResetRequestBody struct {
+	Email string `json:"email"`
+}
+type passwordResetConfirmRequest struct {
+	Token       string `json:"token"`
+	NewPassword string `json:"new_password"`
 }
 type userResponseBody struct {
 	ID                        string                           `json:"id"`
