@@ -12,6 +12,7 @@ var subjects = map[string]string{
 	"report_ready":   "Your {{.period_kind}} report is ready",
 	"access_changed": "Your BillPiggy account access has changed",
 	"payment_due":    "{{if eq .reminder \"true\"}}Upcoming payment{{else}}Payment due{{end}}: {{.payment_title}}",
+	"password_reset": "Reset your BillPiggy password",
 }
 
 var textBodies = map[string]string{
@@ -45,6 +46,13 @@ BillPiggy has already recorded this expense for you.
 {{else}}
 Sign in to BillPiggy to record this expense once you have paid it.
 {{end}}`,
+
+	"password_reset": `A password reset was requested for your BillPiggy account.
+{{if .reset_url}}Reset your password: {{.reset_url}}
+{{else}}Your password reset code: {{.token}}
+{{end}}This link expires at {{.expires_at}}.
+
+If you did not request this, you can ignore this email — your password will not change.`,
 }
 
 var htmlBodies = map[string]string{
@@ -74,4 +82,9 @@ var htmlBodies = map[string]string{
 <li>Amount: {{.amount_minor}} {{.currency}} (minor units)</li>
 </ul>
 {{if eq .auto_posted "true"}}<p>BillPiggy has already recorded this expense for you.</p>{{else}}<p>Sign in to BillPiggy to record this expense once you have paid it.</p>{{end}}`,
+
+	"password_reset": `<p>A password reset was requested for your BillPiggy account.</p>
+{{if .reset_url}}<p><a href="{{.reset_url}}">Reset your password</a></p>{{else}}<p>Your password reset code: <code>{{.token}}</code></p>{{end}}
+<p>This link expires at {{.expires_at}}.</p>
+<p>If you did not request this, you can ignore this email — your password will not change.</p>`,
 }

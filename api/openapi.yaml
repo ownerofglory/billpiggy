@@ -586,6 +586,18 @@ definitions:
       role:
         $ref: '#/definitions/domain.UserRole'
     type: object
+  handler.passwordResetConfirmRequest:
+    properties:
+      new_password:
+        type: string
+      token:
+        type: string
+    type: object
+  handler.passwordResetRequestBody:
+    properties:
+      email:
+        type: string
+    type: object
   handler.profileRequest:
     properties:
       ai_enabled:
@@ -998,6 +1010,52 @@ paths:
               type: string
             type: object
       summary: Get current user
+      tags:
+      - auth
+  /billpiggy/api/v1/auth/password-reset:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Email
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.passwordResetRequestBody'
+      responses:
+        "202":
+          description: Accepted
+      summary: Request password reset
+      tags:
+      - auth
+  /billpiggy/api/v1/auth/password-reset/confirm:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Reset token and new password
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.passwordResetConfirmRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Confirm password reset
       tags:
       - auth
   /billpiggy/api/v1/auth/refresh:

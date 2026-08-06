@@ -187,6 +187,30 @@ func (r *IdentityRepository) RevokeAllRefreshTokens(ctx context.Context, userID 
 	return err
 }
 
+func (r *IdentityRepository) GetPasswordResetByTokenHash(ctx context.Context, tokenHash string) (domain.PasswordReset, error) {
+	var reset domain.PasswordReset
+	var usedAt *time.Time
+	err := pgxtx.From(ctx, r.pool).QueryRow(ctx, `select id::text, user_id::text, expires_at, created_at, used_at from identity.password_resets where token_hash = $1`, hashBytes(tokenHash)).Scan(&reset.ID, &reset.UserID, &reset.ExpiresAt, &reset.CreatedAt, &usedAt)
+	reset.TokenHash, reset.UsedAt = tokenHash, usedAt
+	return reset, err
+}
+
+func (r *IdentityRepository) CreatePasswordReset(ctx context.Context, reset domain.PasswordReset) error {
+	_, err := pgxtx.From(ctx, r.pool).Exec(ctx, `insert into identity.password_resets (id, user_id, token_hash, expires_at, created_at) values ($1, $2, $3, $4, $5)`, reset.ID, reset.UserID, hashBytes(reset.TokenHash), reset.ExpiresAt, reset.CreatedAt)
+	return err
+}
+
+func (r *IdentityRepository) MarkPasswordResetUsed(ctx context.Context, resetID string) error {
+	_, err := pgxtx.From(ctx, r.pool).Exec(ctx, `update identity.password_resets set used_at = now() where id = $1 and used_at is null`, resetID)
+	return err
+}
+
+// InvalidatePendingPasswordResets marks every unused reset for userID as used.
+func (r *IdentityRepository) InvalidatePendingPasswordResets(ctx context.Context, userID string) error {
+	_, err := pgxtx.From(ctx, r.pool).Exec(ctx, `update identity.password_resets set used_at = now() where user_id = $1 and used_at is null`, userID)
+	return err
+}
+
 func hashBytes(value string) []byte {
 	decoded, err := hex.DecodeString(value)
 	if err != nil {

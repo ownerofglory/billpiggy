@@ -117,3 +117,18 @@ type RefreshToken struct {
 	RevokedAt  *time.Time
 	ReplacedBy string
 }
+
+// PasswordReset permits setting a new password for one account, once, within
+// a short window, to whoever can prove receipt of the account's email by
+// presenting the raw token it was sent. Only a hash of that token is stored,
+// the same way Invitation and RefreshToken store theirs.
+type PasswordReset struct {
+	ID        string
+	UserID    string
+	TokenHash string
+	ExpiresAt time.Time
+	CreatedAt time.Time
+	// UsedAt marks the reset consumed. A used or expired reset can never be
+	// redeemed again, so ResetPassword checks both before touching a password.
+	UsedAt *time.Time
+}

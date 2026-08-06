@@ -97,3 +97,15 @@ func (r *IdentityRepository) RevokeRefreshToken(ctx context.Context, tokenID str
 func (r *IdentityRepository) RevokeAllRefreshTokens(ctx context.Context, userID string) error {
 	return r.inner.RevokeAllRefreshTokens(ctx, userID)
 }
+func (r *IdentityRepository) GetPasswordResetByTokenHash(ctx context.Context, tokenHash string) (domain.PasswordReset, error) {
+	return r.inner.GetPasswordResetByTokenHash(ctx, tokenHash)
+}
+func (r *IdentityRepository) CreatePasswordReset(ctx context.Context, reset domain.PasswordReset) error {
+	return r.inner.CreatePasswordReset(ctx, reset)
+}
+func (r *IdentityRepository) MarkPasswordResetUsed(ctx context.Context, resetID string) error {
+	return r.inner.MarkPasswordResetUsed(ctx, resetID)
+}
+func (r *IdentityRepository) InvalidatePendingPasswordResets(ctx context.Context, userID string) error {
+	return r.inner.InvalidatePendingPasswordResets(ctx, userID)
+}
