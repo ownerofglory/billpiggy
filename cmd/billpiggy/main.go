@@ -409,6 +409,17 @@ func applicationStores(cfg config.BillPiggyAppConfig, healthRegistry *health.Reg
 		slog.Error("connect postgres", "error", err)
 		os.Exit(1)
 	}
+	// pgxpool.New never dials on its own — without this, a bad DSN, DNS
+	// failure, or unreachable host stays silent until the first real query
+	// blocks indefinitely and is eventually cut short by SIGTERM, surfacing
+	// only as an opaque "context canceled" with no indication of the actual
+	// cause. Pinging here with a bounded timeout fails fast with the real error.
+	pingCtx, cancelPing := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelPing()
+	if err := pool.Ping(pingCtx); err != nil {
+		slog.Error("ping postgres", "error", err)
+		os.Exit(1)
+	}
 	identity := postgresadapter.NewIdentityRepository(pool)
 	healthRegistry.Register("postgres", identity.Ping)
 	healthRegistry.Register("migrations", migrationsAppliedCheck(pool))
