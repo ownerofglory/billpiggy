@@ -16,10 +16,41 @@ for what's covered, restore steps, and current limitations.
 
 ## State and GitHub Actions
 
-The manual **Apply production infrastructure** workflow requires an HTTP Terraform
-state backend. Configure `TF_HTTP_ADDRESS`, `TF_HTTP_USERNAME`, and
-`TF_HTTP_PASSWORD` as `production` Environment secrets. If the backend supports
-locking, also configure `TF_HTTP_LOCK_ADDRESS` and `TF_HTTP_UNLOCK_ADDRESS`.
+Terraform state is stored in a [Cloudflare R2](https://developers.cloudflare.com/r2/)
+bucket, addressed through Terraform's `s3` backend — R2 exposes an S3-compatible API,
+so no separate backend implementation is needed. `versions.tf` declares an empty
+`backend "s3" {}`; the manual **Apply production infrastructure** workflow renders
+[`backend.hcl.tmpl`](backend.hcl.tmpl) with `envsubst` and passes it to
+`terraform init -backend-config=...`, so nothing bucket- or account-specific is
+committed to the repository.
+
+Configure these as `production` Environment secrets:
+
+| Secret | Purpose |
+| --- | --- |
+| `TF_STATE_BUCKET` | R2 bucket name holding the state object. |
+| `TF_STATE_KEY` | Object key/path within the bucket, e.g. `billpiggy/terraform.tfstate`. |
+| `TF_STATE_ENDPOINT` | The bucket's S3 API endpoint: `https://<ACCOUNT_ID>.r2.cloudflarestorage.com`. |
+| `TF_STATE_ACCESS_KEY_ID` | Access key ID from an R2 API token scoped to that bucket. |
+| `TF_STATE_SECRET_ACCESS_KEY` | Secret access key for the same token. |
+
+To create these in Cloudflare: R2 → create a bucket for state → **Manage API tokens**
+→ create a token scoped to **only that bucket** with **Object Read & Write**
+permission (not the account-wide R2 token, and not the Cloudflare account API token).
+The dashboard shows the Access Key ID/Secret Access Key once, at creation time, and
+the Jurisdiction-specific S3 API endpoint to use as `TF_STATE_ENDPOINT`.
+
+State locking uses the S3 backend's native conditional-write locking
+(`use_lock_file = true` in `backend.hcl.tmpl`) rather than the old DynamoDB-table
+mechanism, which R2 has no equivalent for. This needs Terraform >= 1.11 (pinned in
+`versions.tf`) and an R2 bucket, both already satisfied by this setup; if a future
+`terraform init` ever rejects `use_lock_file` as unsupported, removing that one line
+degrades to unlocked state rather than breaking the workflow.
+
+Credentials are read by the S3 backend's AWS SDK from the standard
+`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` environment variables (set by the workflow
+from the two secrets above) rather than written into `backend.hcl`, so no credential
+ever lands in a file on the runner's disk.
 
 The workflow additionally requires `POSTGRES_PASSWORD`, `MINIO_ROOT_USER`,
 `MINIO_ROOT_PASSWORD`, `MINIO_APP_USER`, and `MINIO_APP_PASSWORD` Environment secrets,

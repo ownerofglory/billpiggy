@@ -1,0 +1,37 @@
+# Partial backend configuration for `terraform init -backend-config=...`,
+# rendered by the "Apply production infrastructure" workflow via `envsubst`.
+# No credentials here on purpose: AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY are
+# exported as plain environment variables instead, which the S3 backend's
+# underlying AWS SDK reads automatically, so no secret ever touches a file on
+# the runner's disk. See infra/terraform/README.md for the required secrets
+# and how to create the R2 bucket and API token this points at.
+bucket = "$TF_STATE_BUCKET"
+key    = "$TF_STATE_KEY"
+
+# R2 has one region, and Cloudflare's own S3-compatibility docs say to use
+# this literal value rather than an AWS region name.
+region = "auto"
+
+endpoints = {
+  s3 = "$TF_STATE_ENDPOINT"
+}
+
+# R2 is not AWS: none of these AWS-specific behaviors apply, and leaving them
+# enabled either fails outright (STS account-ID lookup, EC2 metadata check)
+# or corrupts the request (the AWS SDK v2 default S3 checksum trailer, which
+# R2 does not support).
+skip_credentials_validation = true
+skip_region_validation      = true
+skip_requesting_account_id  = true
+skip_metadata_api_check     = true
+skip_s3_checksum            = true
+
+# Native S3 state locking via conditional writes (If-None-Match), replacing
+# the old DynamoDB-table lock mechanism that has no R2 equivalent. Requires
+# Terraform >= 1.11 (see versions.tf) and an R2 bucket created after R2
+# added conditional-write support (mid-2024) — both should already be true,
+# but if `terraform init` rejects this argument on an older Terraform build,
+# remove this line rather than the pipeline being expected to still lock:
+# that degrades to "no locking", matching what an unset TF_HTTP_LOCK_ADDRESS
+# already meant under the old HTTP backend.
+use_lock_file = true
