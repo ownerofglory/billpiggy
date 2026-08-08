@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -404,22 +405,40 @@ func applicationStores(cfg config.BillPiggyAppConfig, healthRegistry *health.Reg
 		slog.Warn("using in-memory storage; set DATABASE_URL for persistent data")
 		return memoryStores()
 	}
-	pool, err := pgxpool.New(context.Background(), cfg.DatabaseURL)
+	poolCfg, err := pgxpool.ParseConfig(cfg.DatabaseURL)
+	if err != nil {
+		slog.Error("parse postgres config", "error", err)
+		os.Exit(1)
+	}
+	// The initial deploy's Postgres connection hung for 60s+ with no
+	// indication of which phase (DNS vs. TCP connect vs. Postgres handshake)
+	// was stuck, surfacing only as an opaque "context canceled" once the
+	// startup probe's SIGTERM cut it off. Resolving and pinging separately,
+	// each bounded and logged with elapsed time, pinpoints which one it is.
+	resolveCtx, cancelResolve := context.WithTimeout(context.Background(), 15*time.Second)
+	resolveStart := time.Now()
+	addrs, err := net.DefaultResolver.LookupHost(resolveCtx, poolCfg.ConnConfig.Host)
+	cancelResolve()
+	if err != nil {
+		slog.Error("resolve postgres host", "host", poolCfg.ConnConfig.Host, "elapsed", time.Since(resolveStart), "error", err)
+		os.Exit(1)
+	}
+	slog.Info("resolved postgres host", "host", poolCfg.ConnConfig.Host, "addrs", addrs, "elapsed", time.Since(resolveStart))
+
+	pool, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
 	if err != nil {
 		slog.Error("connect postgres", "error", err)
 		os.Exit(1)
 	}
-	// pgxpool.New never dials on its own — without this, a bad DSN, DNS
-	// failure, or unreachable host stays silent until the first real query
-	// blocks indefinitely and is eventually cut short by SIGTERM, surfacing
-	// only as an opaque "context canceled" with no indication of the actual
-	// cause. Pinging here with a bounded timeout fails fast with the real error.
-	pingCtx, cancelPing := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancelPing()
-	if err := pool.Ping(pingCtx); err != nil {
-		slog.Error("ping postgres", "error", err)
+	pingCtx, cancelPing := context.WithTimeout(context.Background(), 30*time.Second)
+	pingStart := time.Now()
+	err = pool.Ping(pingCtx)
+	cancelPing()
+	if err != nil {
+		slog.Error("ping postgres", "elapsed", time.Since(pingStart), "error", err)
 		os.Exit(1)
 	}
+	slog.Info("postgres reachable", "elapsed", time.Since(pingStart))
 	identity := postgresadapter.NewIdentityRepository(pool)
 	healthRegistry.Register("postgres", identity.Ping)
 	healthRegistry.Register("migrations", migrationsAppliedCheck(pool))
