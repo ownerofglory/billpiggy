@@ -93,6 +93,24 @@ resource "helm_release" "minio" {
   # set_sensitive so they never appear in this file or in plan/state diffs.
   values = [
     yamlencode({
+      # Broadcom pruned versioned tags from the free docker.io/bitnami/*
+      # image namespace on 2025-08-28 — a separate, deeper break than the
+      # chart-hosting migration above, confirmed by a real ImagePullBackOff:
+      # "docker.io/bitnami/minio:2025.7.23-debian-12-r3: not found". The
+      # frozen (no further updates) mirror of exactly these pre-migration
+      # tags lives at docker.io/bitnamilegacy/*; both tags below were
+      # confirmed present there before this override was written. Two
+      # separate image keys need overriding, not one: `image` is the main
+      # MinIO server container, `clientImage` is what the provisioning Job
+      # below actually runs (the chart does not reuse `image` for it).
+      image = {
+        registry   = "docker.io"
+        repository = "bitnamilegacy/minio"
+      }
+      clientImage = {
+        registry   = "docker.io"
+        repository = "bitnamilegacy/minio-client"
+      }
       # billpiggy-backups holds nightly PostgreSQL dumps and a mirror of the
       # billpiggy bucket; see the backup CronJobs below and
       # docs/backup-and-disaster-recovery.md.
