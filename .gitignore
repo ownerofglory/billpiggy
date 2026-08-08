@@ -43,3 +43,6 @@ bin/
 *.tfplan
 *.tfstate
 *.tfstate.*
+# Rendered from infra/terraform/backend.hcl.tmpl for a local `terraform init`
+# against the real backend; environment-specific, never committed.
+infra/terraform/backend.hcl

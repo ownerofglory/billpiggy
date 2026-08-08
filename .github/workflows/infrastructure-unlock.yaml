@@ -1,0 +1,55 @@
+name: Unlock Terraform state
+
+# Break-glass only: clears a stuck state lock left behind when a prior
+# "Apply production infrastructure" run acquired it and didn't release it
+# cleanly (most commonly, cancelling a run from the GitHub UI mid-apply).
+# force-unlock only removes the lock marker — it never reads, writes, or
+# otherwise touches state content or infrastructure. See the "Error
+# acquiring the state lock" message a stuck plan/apply failed with for the
+# LOCK_ID this needs.
+on:
+  workflow_dispatch:
+    inputs:
+      lock_id:
+        description: Lock ID from a failed "Error acquiring the state lock" message
+        required: true
+        type: string
+      confirm:
+        description: Type UNLOCK to confirm
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# Same group as the apply workflow, on purpose: if an apply is genuinely
+# still running (not crashed, just slow), this queues behind it instead of
+# racing it, so a legitimately-held lock is never force-removed out from
+# under its own owner.
+concurrency:
+  group: billpiggy-infrastructure
+  cancel-in-progress: false
+
+jobs:
+  unlock:
+    if: ${{ inputs.confirm == 'UNLOCK' }}
+    runs-on: ubuntu-22.04
+    environment: production
+    defaults:
+      run:
+        working-directory: infra/terraform
+    env:
+      TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+      TF_STATE_KEY: ${{ secrets.TF_STATE_KEY }}
+      TF_STATE_ENDPOINT: ${{ secrets.TF_STATE_ENDPOINT }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.TF_STATE_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.TF_STATE_SECRET_ACCESS_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure Terraform state backend
+        run: envsubst < backend.hcl.tmpl > "$RUNNER_TEMP/backend.hcl"
+      - uses: hashicorp/setup-terraform@v3
+      - name: Initialize backend
+        run: terraform init -input=false -backend-config="$RUNNER_TEMP/backend.hcl"
+      - name: Force-unlock state
+        run: terraform force-unlock -force "${{ inputs.lock_id }}"

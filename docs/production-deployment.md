@@ -38,11 +38,11 @@ that production deployment requires approval.
 | `MINIO_APP_PASSWORD` | IaC workflow | Secret key for the scoped application user. Also set as `MINIO_SECRET_KEY` above. |
 | `MINIO_BACKUP_USER` | IaC workflow | Access key for the scoped backup user, provisioned by Terraform with access to only `billpiggy-backups`. Used solely by the in-cluster backup `CronJob`s. |
 | `MINIO_BACKUP_PASSWORD` | IaC workflow | Secret key for the scoped backup user. |
-| `TF_HTTP_ADDRESS` | IaC workflow | HTTP Terraform state endpoint. |
-| `TF_HTTP_USERNAME` | IaC workflow | HTTP state backend user, if required. |
-| `TF_HTTP_PASSWORD` | IaC workflow | HTTP state backend password, if required. |
-| `TF_HTTP_LOCK_ADDRESS` | IaC workflow | HTTP state-lock endpoint, if supported. |
-| `TF_HTTP_UNLOCK_ADDRESS` | IaC workflow | HTTP state-unlock endpoint, if supported. |
+| `TF_STATE_BUCKET` | IaC workflow | Cloudflare R2 bucket name holding Terraform state. |
+| `TF_STATE_KEY` | IaC workflow | State object key/path within that bucket, e.g. `billpiggy/terraform.tfstate`. |
+| `TF_STATE_ENDPOINT` | IaC workflow | R2 bucket's S3 API endpoint: `https://<ACCOUNT_ID>.r2.cloudflarestorage.com`. |
+| `TF_STATE_ACCESS_KEY_ID` | IaC workflow | Access key ID from an R2 API token scoped to only the state bucket. |
+| `TF_STATE_SECRET_ACCESS_KEY` | IaC workflow | Secret access key for the same token. |
 
 Keep the bootstrap credentials available after initial deployment. They are only used
 when no super-admin exists, but are needed if a newly provisioned database must be
@@ -92,6 +92,12 @@ credentials; see its [README](../infra/terraform/README.md).
 Choose `plan` first. The `apply` action requires the literal confirmation `APPLY`.
 Terraform apply is intentionally prohibited on local machines; only the protected
 GitHub Actions workflow is authorized to make infrastructure changes.
+
+If a `plan`/`apply` run fails with "Error acquiring the state lock" — typically left
+behind by cancelling a previous run from the GitHub UI mid-apply rather than letting
+it fail on its own — run the **Unlock Terraform state** workflow with the `LOCK_ID`
+from that error message and `UNLOCK` typed to confirm. It only removes the lock
+marker; it never touches state content or infrastructure.
 
 ## Run a deployment
 

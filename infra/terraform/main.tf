@@ -5,10 +5,22 @@ resource "kubernetes_namespace_v1" "infrastructure" {
 }
 
 resource "helm_release" "postgresql" {
-  name       = "billpiggy-postgresql"
-  repository = "https://charts.bitnami.com/bitnami"
+  name = "billpiggy-postgresql"
+  # Bitnami retired the classic https://charts.bitnami.com/bitnami index on
+  # 2025-08-28; charts now live only as OCI artifacts. Pointing helm_release
+  # at the old index either 404s or resolves to a malformed OCI reference
+  # depending on which chart, which is why postgresql failed with
+  # "could not download chart: invalid_reference: invalid tag" while minio
+  # below merely hung until its install timed out — same root cause,
+  # different failure shape. 18.8.6 is a real published tag as of this
+  # change (there is no 16.x left in the OCI repo to fall back to); it's a
+  # jump across major chart versions from the old 16.4.5 pin, so review
+  # https://github.com/bitnami/charts/blob/main/bitnami/postgresql/README.md
+  # for values.yaml changes before applying to an environment that already
+  # has data — this repo has none yet.
+  repository = "oci://registry-1.docker.io/bitnamicharts"
   chart      = "postgresql"
-  version    = "16.4.5"
+  version    = "18.8.6"
   namespace  = kubernetes_namespace_v1.infrastructure.metadata[0].name
 
   set {
@@ -46,11 +58,34 @@ resource "helm_release" "postgresql" {
 }
 
 resource "helm_release" "minio" {
-  name       = "billpiggy-minio"
-  repository = "https://charts.bitnami.com/bitnami"
+  name = "billpiggy-minio"
+  # See the comment on helm_release.postgresql above: same OCI migration,
+  # same fix. 17.0.21 is the newest minio chart tag published under the new
+  # OCI path as of this change, itself a jump from the retired 14.7.3.
+  repository = "oci://registry-1.docker.io/bitnamicharts"
   chart      = "minio"
-  version    = "14.7.3"
+  version    = "17.0.21"
   namespace  = kubernetes_namespace_v1.infrastructure.metadata[0].name
+
+  # Two applies in a row hit "Still creating..." for the full 5m20s before
+  # timing out — once against the broken pre-OCI-migration chart source,
+  # once against the now-working one — so the timeout itself, not the chart
+  # version, is the current suspect. Raised from the 300s default; if it
+  # still times out at 600s, the pod is not merely slow (mode still defaults
+  # to standalone here, and its readiness/liveness probes fire 5s after the
+  # container starts and poll every 5s, so a container that's actually
+  # Running would pass them almost immediately) — that needs `kubectl get
+  # pods`/`describe`/`logs` in the cluster to see whether it's stuck
+  # Pending, ImagePullBackOff, or CrashLoopBackOff, none of which are
+  # visible from here.
+  timeout = 600
+  # Also gates completion on the provisioning Job succeeding, not just the
+  # MinIO pod being ready. Without this (the provider default), a
+  # provisioning Job that silently failed would leave this apply reporting
+  # success while the billpiggy-app/billpiggy-backup users — which
+  # everything else in this file assumes exist — were never actually
+  # created.
+  wait_for_jobs = true
 
   # Non-sensitive values, including the policy that scopes the application
   # user below to the billpiggy bucket only. Root credentials and the
@@ -58,6 +93,24 @@ resource "helm_release" "minio" {
   # set_sensitive so they never appear in this file or in plan/state diffs.
   values = [
     yamlencode({
+      # Broadcom pruned versioned tags from the free docker.io/bitnami/*
+      # image namespace on 2025-08-28 — a separate, deeper break than the
+      # chart-hosting migration above, confirmed by a real ImagePullBackOff:
+      # "docker.io/bitnami/minio:2025.7.23-debian-12-r3: not found". The
+      # frozen (no further updates) mirror of exactly these pre-migration
+      # tags lives at docker.io/bitnamilegacy/*; both tags below were
+      # confirmed present there before this override was written. Two
+      # separate image keys need overriding, not one: `image` is the main
+      # MinIO server container, `clientImage` is what the provisioning Job
+      # below actually runs (the chart does not reuse `image` for it).
+      image = {
+        registry   = "docker.io"
+        repository = "bitnamilegacy/minio"
+      }
+      clientImage = {
+        registry   = "docker.io"
+        repository = "bitnamilegacy/minio-client"
+      }
       # billpiggy-backups holds nightly PostgreSQL dumps and a mirror of the
       # billpiggy bucket; see the backup CronJobs below and
       # docs/backup-and-disaster-recovery.md.
