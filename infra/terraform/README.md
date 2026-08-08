@@ -77,3 +77,30 @@ construct `DATABASE_URL` for the application deployment. The in-cluster hostname
 
 Run `terraform fmt -check` and `terraform validate` before changing these files. Do
 not run `terraform apply` locally against production; use the protected workflow.
+
+## Local setup (break-glass only, e.g. force-unlocking a stuck state lock)
+
+`plan`/`apply` only ever run through the protected workflow — this is for the rare
+case you need a state-only command like `terraform force-unlock` directly, when a
+prior workflow run acquired the lock and didn't release it cleanly (most commonly:
+cancelling a run from the GitHub UI mid-`apply` skips the release). This needs the
+same credentials the workflow has — it grants nothing extra — and Terraform >= 1.11:
+
+```sh
+cd infra/terraform
+export TF_STATE_BUCKET=...           # same value as the TF_STATE_BUCKET secret
+export TF_STATE_KEY=...              # same value as the TF_STATE_KEY secret
+export TF_STATE_ENDPOINT=...         # same value as the TF_STATE_ENDPOINT secret
+export AWS_ACCESS_KEY_ID=...         # same value as the TF_STATE_ACCESS_KEY_ID secret
+export AWS_SECRET_ACCESS_KEY=...     # same value as the TF_STATE_SECRET_ACCESS_KEY secret
+
+envsubst < backend.hcl.tmpl > backend.hcl   # gitignored — never commit this file
+terraform init -backend-config=backend.hcl
+```
+
+Then `terraform force-unlock -force <LOCK_ID>` — the ID is printed in the "Error
+acquiring the state lock" message the stuck `plan`/`apply` failed with. This only
+removes the lock marker; it does not read, write, or otherwise touch state content or
+infrastructure. Alternatively, trigger the **Unlock Terraform state** workflow instead
+of setting any of this up locally — same operation, run through the protected
+workflow, no local Terraform install needed.

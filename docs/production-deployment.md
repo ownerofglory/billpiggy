@@ -93,6 +93,12 @@ Choose `plan` first. The `apply` action requires the literal confirmation `APPLY
 Terraform apply is intentionally prohibited on local machines; only the protected
 GitHub Actions workflow is authorized to make infrastructure changes.
 
+If a `plan`/`apply` run fails with "Error acquiring the state lock" — typically left
+behind by cancelling a previous run from the GitHub UI mid-apply rather than letting
+it fail on its own — run the **Unlock Terraform state** workflow with the `LOCK_ID`
+from that error message and `UNLOCK` typed to confirm. It only removes the lock
+marker; it never touches state content or infrastructure.
+
 ## Run a deployment
 
 1. Publish the release image through the Docker release workflow.
