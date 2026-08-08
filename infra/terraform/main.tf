@@ -5,10 +5,22 @@ resource "kubernetes_namespace_v1" "infrastructure" {
 }
 
 resource "helm_release" "postgresql" {
-  name       = "billpiggy-postgresql"
-  repository = "https://charts.bitnami.com/bitnami"
+  name = "billpiggy-postgresql"
+  # Bitnami retired the classic https://charts.bitnami.com/bitnami index on
+  # 2025-08-28; charts now live only as OCI artifacts. Pointing helm_release
+  # at the old index either 404s or resolves to a malformed OCI reference
+  # depending on which chart, which is why postgresql failed with
+  # "could not download chart: invalid_reference: invalid tag" while minio
+  # below merely hung until its install timed out — same root cause,
+  # different failure shape. 18.8.6 is a real published tag as of this
+  # change (there is no 16.x left in the OCI repo to fall back to); it's a
+  # jump across major chart versions from the old 16.4.5 pin, so review
+  # https://github.com/bitnami/charts/blob/main/bitnami/postgresql/README.md
+  # for values.yaml changes before applying to an environment that already
+  # has data — this repo has none yet.
+  repository = "oci://registry-1.docker.io/bitnamicharts"
   chart      = "postgresql"
-  version    = "16.4.5"
+  version    = "18.8.6"
   namespace  = kubernetes_namespace_v1.infrastructure.metadata[0].name
 
   set {
@@ -46,10 +58,13 @@ resource "helm_release" "postgresql" {
 }
 
 resource "helm_release" "minio" {
-  name       = "billpiggy-minio"
-  repository = "https://charts.bitnami.com/bitnami"
+  name = "billpiggy-minio"
+  # See the comment on helm_release.postgresql above: same OCI migration,
+  # same fix. 17.0.21 is the newest minio chart tag published under the new
+  # OCI path as of this change, itself a jump from the retired 14.7.3.
+  repository = "oci://registry-1.docker.io/bitnamicharts"
   chart      = "minio"
-  version    = "14.7.3"
+  version    = "17.0.21"
   namespace  = kubernetes_namespace_v1.infrastructure.metadata[0].name
 
   # Non-sensitive values, including the policy that scopes the application
