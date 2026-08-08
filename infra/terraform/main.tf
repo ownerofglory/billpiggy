@@ -67,6 +67,26 @@ resource "helm_release" "minio" {
   version    = "17.0.21"
   namespace  = kubernetes_namespace_v1.infrastructure.metadata[0].name
 
+  # Two applies in a row hit "Still creating..." for the full 5m20s before
+  # timing out — once against the broken pre-OCI-migration chart source,
+  # once against the now-working one — so the timeout itself, not the chart
+  # version, is the current suspect. Raised from the 300s default; if it
+  # still times out at 600s, the pod is not merely slow (mode still defaults
+  # to standalone here, and its readiness/liveness probes fire 5s after the
+  # container starts and poll every 5s, so a container that's actually
+  # Running would pass them almost immediately) — that needs `kubectl get
+  # pods`/`describe`/`logs` in the cluster to see whether it's stuck
+  # Pending, ImagePullBackOff, or CrashLoopBackOff, none of which are
+  # visible from here.
+  timeout = 600
+  # Also gates completion on the provisioning Job succeeding, not just the
+  # MinIO pod being ready. Without this (the provider default), a
+  # provisioning Job that silently failed would leave this apply reporting
+  # success while the billpiggy-app/billpiggy-backup users — which
+  # everything else in this file assumes exist — were never actually
+  # created.
+  wait_for_jobs = true
+
   # Non-sensitive values, including the policy that scopes the application
   # user below to the billpiggy bucket only. Root credentials and the
   # provisioned user's own credentials are supplied separately as
