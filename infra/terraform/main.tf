@@ -98,11 +98,13 @@ resource "helm_release" "minio" {
       # chart-hosting migration above, confirmed by a real ImagePullBackOff:
       # "docker.io/bitnami/minio:2025.7.23-debian-12-r3: not found". The
       # frozen (no further updates) mirror of exactly these pre-migration
-      # tags lives at docker.io/bitnamilegacy/*; both tags below were
-      # confirmed present there before this override was written. Two
+      # tags lives at docker.io/bitnamilegacy/*; every tag below was
+      # confirmed present there before this override was written. Three
       # separate image keys need overriding, not one: `image` is the main
       # MinIO server container, `clientImage` is what the provisioning Job
-      # below actually runs (the chart does not reuse `image` for it).
+      # below actually runs, and `console.image` is the separate
+      # minio-object-browser deployment the chart installs alongside MinIO
+      # itself for the web console (none of the three reuse each other).
       image = {
         registry   = "docker.io"
         repository = "bitnamilegacy/minio"
@@ -110,6 +112,12 @@ resource "helm_release" "minio" {
       clientImage = {
         registry   = "docker.io"
         repository = "bitnamilegacy/minio-client"
+      }
+      console = {
+        image = {
+          registry   = "docker.io"
+          repository = "bitnamilegacy/minio-object-browser"
+        }
       }
       # billpiggy-backups holds nightly PostgreSQL dumps and a mirror of the
       # billpiggy bucket; see the backup CronJobs below and
