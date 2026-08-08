@@ -34,4 +34,9 @@ skip_s3_checksum            = true
 # remove this line rather than the pipeline being expected to still lock:
 # that degrades to "no locking", matching what an unset TF_HTTP_LOCK_ADDRESS
 # already meant under the old HTTP backend.
-use_lock_file = true
+#
+# The argument is spelled without an underscore between "lock" and "file" —
+# confirmed against a real `terraform init` run against this backend after
+# the double-underscore spelling failed with "Unsupported argument ...
+# Did you mean \"use_lockfile\"?".
+use_lockfile = true

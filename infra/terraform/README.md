@@ -41,10 +41,10 @@ The dashboard shows the Access Key ID/Secret Access Key once, at creation time, 
 the Jurisdiction-specific S3 API endpoint to use as `TF_STATE_ENDPOINT`.
 
 State locking uses the S3 backend's native conditional-write locking
-(`use_lock_file = true` in `backend.hcl.tmpl`) rather than the old DynamoDB-table
+(`use_lockfile = true` in `backend.hcl.tmpl`) rather than the old DynamoDB-table
 mechanism, which R2 has no equivalent for. This needs Terraform >= 1.11 (pinned in
 `versions.tf`) and an R2 bucket, both already satisfied by this setup; if a future
-`terraform init` ever rejects `use_lock_file` as unsupported, removing that one line
+`terraform init` ever rejects `use_lockfile` as unsupported, removing that one line
 degrades to unlocked state rather than breaking the workflow.
 
 Credentials are read by the S3 backend's AWS SDK from the standard

@@ -1,5 +1,5 @@
 terraform {
-  # 1.11 is required for the S3 backend's native `use_lock_file` locking
+  # 1.11 is required for the S3 backend's native `use_lockfile` locking
   # (conditional writes) used below — the state backend is Cloudflare R2's
   # S3-compatible API, which has no DynamoDB equivalent for the older
   # lock-table mechanism.
