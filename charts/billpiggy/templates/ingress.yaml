@@ -6,11 +6,15 @@ metadata:
   labels:
     {{- include "billpiggy.labels" . | nindent 4 }}
   annotations:
-    cert-manager.io/cluster-issuer: {{ .Values.ingress.clusterIssuer | quote }}
+    cert-manager.io/cluster-issuer: {{ required "ingress.clusterIssuer is required when ingress.enabled is true" .Values.ingress.clusterIssuer | quote }}
 spec:
   ingressClassName: {{ .Values.ingress.className | quote }}
   rules:
-    - host: {{ .Values.ingress.host | quote }}
+    # An empty host isn't "no domain configured" — Kubernetes treats a blank
+    # Ingress rule host as a catch-all matching every incoming Host header.
+    # required() turns a missing INGRESS_HOST into a failed deploy instead of
+    # a silently wide-open route.
+    - host: {{ required "ingress.host is required when ingress.enabled is true" .Values.ingress.host | quote }}
       http:
         paths:
           - path: /
@@ -22,6 +26,6 @@ spec:
                   number: {{ .Values.service.port }}
   tls:
     - hosts:
-        - {{ .Values.ingress.host | quote }}
-      secretName: {{ .Values.ingress.tlsSecretName }}
+        - {{ required "ingress.host is required when ingress.enabled is true" .Values.ingress.host | quote }}
+      secretName: {{ required "ingress.tlsSecretName is required when ingress.enabled is true" .Values.ingress.tlsSecretName | quote }}
 {{- end }}
