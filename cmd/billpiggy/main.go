@@ -27,6 +27,7 @@ import (
 	"github.com/ownerofglory/billpiggy/internal/core/port/inbound"
 	"github.com/ownerofglory/billpiggy/internal/core/port/outbound"
 	"github.com/ownerofglory/billpiggy/internal/core/service"
+	"github.com/ownerofglory/billpiggy/pkg/cors"
 	"github.com/ownerofglory/billpiggy/pkg/email"
 	"github.com/ownerofglory/billpiggy/pkg/health"
 	"github.com/ownerofglory/billpiggy/pkg/metrics"
@@ -127,6 +128,10 @@ func main() {
 	aiCalls := appMetrics.NewCounterVec("billpiggy_ai_requests_total", "Total AI provider calls.", "workload", "outcome")
 	aiTokens := appMetrics.NewCounterVec("billpiggy_ai_tokens_total", "Total AI token usage.", "workload", "direction")
 	notificationOutcomes := appMetrics.NewCounterVec("billpiggy_notifications_total", "Total resolved notification deliveries.", "kind", "outcome")
+	// Registered first so it wraps everything else: a preflight OPTIONS
+	// request must get a CORS response before it ever reaches auth or route
+	// handling, not a 405 from falling through unmatched.
+	r.Use(cors.Middleware(cors.ParseOrigins(cfg.CORSAllowedOrigins)))
 	r.Use(metrics.HTTPMiddleware(httpRequests, httpLatency, routePattern))
 
 	adapters := applicationStores(cfg, healthRegistry)
@@ -407,6 +412,17 @@ func applicationStores(cfg config.BillPiggyAppConfig, healthRegistry *health.Reg
 	pool, err := pgxpool.New(context.Background(), cfg.DatabaseURL)
 	if err != nil {
 		slog.Error("connect postgres", "error", err)
+		os.Exit(1)
+	}
+	// pgxpool.New never dials on its own — without this, a bad DSN, DNS
+	// failure, or unreachable host stays silent until the first real query
+	// blocks indefinitely and is eventually cut short by SIGTERM, surfacing
+	// only as an opaque "context canceled" with no indication of the actual
+	// cause. Pinging here with a bounded timeout fails fast with the real error.
+	pingCtx, cancelPing := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelPing()
+	if err := pool.Ping(pingCtx); err != nil {
+		slog.Error("ping postgres", "error", err)
 		os.Exit(1)
 	}
 	identity := postgresadapter.NewIdentityRepository(pool)

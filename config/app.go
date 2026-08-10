@@ -31,6 +31,11 @@ type BillPiggyAppConfig struct {
 	// outgoing emails, such as an invitation's accept link. Without it, an
 	// invitation email carries the raw invitation code instead of a link.
 	PublicBaseURL string `env:"PUBLIC_BASE_URL"`
+	// CORSAllowedOrigins is a comma-separated list of origins permitted to make
+	// credentialed cross-origin requests (cookies, Authorization headers). The
+	// frontend is never served from this API's own origin, so without this the
+	// browser blocks every request at the preflight stage.
+	CORSAllowedOrigins string `env:"CORS_ALLOWED_ORIGINS"`
 	// MinIOEndpoint selects the S3-compatible object store. Without it uploads
 	// are held in memory, which is intended for local development only.
 	MinIOEndpoint  string `env:"MINIO_ENDPOINT"`
@@ -57,6 +62,9 @@ func (c BillPiggyAppConfig) Validate() error {
 	}
 	if c.Environment == "production" && (c.MinIOEndpoint == "" || c.MinIOAccessKey == "" || c.MinIOSecretKey == "") {
 		return fmt.Errorf("MinIO configuration is required in production")
+	}
+	if c.Environment == "production" && c.CORSAllowedOrigins == "" {
+		return fmt.Errorf("CORS_ALLOWED_ORIGINS is required in production")
 	}
 	if len(c.JWTSecret) < 32 {
 		return fmt.Errorf("JWT_SECRET must contain at least 32 bytes")

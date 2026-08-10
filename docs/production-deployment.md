@@ -67,6 +67,7 @@ bootstrapped.
 | `MINIO_USE_SSL` | Optional | `false` for the in-cluster MinIO service |
 | `OPENAI_ASSISTANT_MODEL` | Optional | `gpt-5.6-luna` |
 | `OPENAI_BASE_URL` | Optional | Empty routes to `api.openai.com`; set to point the assistant at a compatible gateway instead. |
+| `CORS_ALLOWED_ORIGINS` | Yes | `https://billpiggy.example.com`. Comma-separated if the frontend is served from more than one origin (e.g. a preview deployment). Required because the frontend's `credentials: "include"` requests are blocked at the browser's preflight stage without it — see [Cross-origin access](#cross-origin-access). |
 
 ## Database migrations
 
@@ -116,6 +117,20 @@ The **Post-deploy smoke test** workflow runs automatically after a successful
 **Deploy Kubernetes production** run (or on demand via `workflow_dispatch`) and curls
 those same three endpoints over the public ingress, so a deploy that reports success
 in-cluster but isn't actually reachable gets caught immediately.
+
+## Cross-origin access
+
+The frontend is never served from this API's own origin, so every request it makes
+with `credentials: "include"` (needed for the refresh-token cookie) is a credentialed
+cross-origin request. Browsers gate those behind a preflight `OPTIONS` request; without
+`CORS_ALLOWED_ORIGINS` set to the frontend's exact origin(s), the API answers preflight
+with a plain `405` and the browser blocks every real request before it's ever sent —
+`config.Validate()` refuses to start the app in production without this set, so a
+missing value fails the deployment instead of silently shipping a broken CORS setup.
+
+Origins must be listed explicitly (`scheme://host`, no path, no trailing slash);
+a wildcard `*` cannot be combined with credentialed requests per the CORS spec, so there
+is no permissive fallback here by design.
 
 ## Secret handling
 
