@@ -27,6 +27,8 @@ type ExtractedExpense struct {
 	OccurredAt time.Time `json:"occurred_at" jsonschema_description:"When the expense happened, RFC3339. Use the current date if not stated."`
 	// CategoryName is a free-text category guess.
 	CategoryName string `json:"category_name" jsonschema_description:"A short category guess, e.g. Entertainment"`
-	// Items breaks the total down when more than one thing was mentioned.
-	Items []ExtractedExpenseItem `json:"items,omitempty" jsonschema_description:"Individual line items if more than one was mentioned"`
+	// Items breaks the total down when more than one thing was mentioned. Empty
+	// when only one thing was mentioned; strict structured-output schemas
+	// require every property to be present, so this can't be omitempty.
+	Items []ExtractedExpenseItem `json:"items" jsonschema_description:"Individual line items if more than one was mentioned"`
 }
