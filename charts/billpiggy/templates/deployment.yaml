@@ -43,6 +43,8 @@ spec:
               value: {{ .Values.env.logLevel | quote }}
             - name: OPENAI_ASSISTANT_MODEL
               value: {{ .Values.env.openAIAssistantModel | quote }}
+            - name: CORS_ALLOWED_ORIGINS
+              value: {{ .Values.env.corsAllowedOrigins | quote }}
             {{- if .Values.env.openAIBaseURL }}
             - name: OPENAI_BASE_URL
               value: {{ .Values.env.openAIBaseURL | quote }}

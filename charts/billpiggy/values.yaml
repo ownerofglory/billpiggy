@@ -73,6 +73,11 @@ env:
   # assistant at a compatible gateway instead.
   openAIAssistantModel: gpt-5.6-luna
   openAIBaseURL: ""
+  # corsAllowedOrigins is a comma-separated list of origins (e.g.
+  # https://app.example.com) allowed to make credentialed cross-origin
+  # requests. Required whenever the frontend isn't served from this API's
+  # own origin — config.Validate() rejects startup without it in production.
+  corsAllowedOrigins: ""
   # publicBaseURL is the externally reachable app URL, used to build links in
   # outgoing emails (e.g. an invitation's accept link). Empty falls back to
   # emailing the raw invitation code instead of a clickable link.

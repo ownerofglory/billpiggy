@@ -27,6 +27,7 @@ import (
 	"github.com/ownerofglory/billpiggy/internal/core/port/inbound"
 	"github.com/ownerofglory/billpiggy/internal/core/port/outbound"
 	"github.com/ownerofglory/billpiggy/internal/core/service"
+	"github.com/ownerofglory/billpiggy/pkg/cors"
 	"github.com/ownerofglory/billpiggy/pkg/email"
 	"github.com/ownerofglory/billpiggy/pkg/health"
 	"github.com/ownerofglory/billpiggy/pkg/metrics"
@@ -127,6 +128,10 @@ func main() {
 	aiCalls := appMetrics.NewCounterVec("billpiggy_ai_requests_total", "Total AI provider calls.", "workload", "outcome")
 	aiTokens := appMetrics.NewCounterVec("billpiggy_ai_tokens_total", "Total AI token usage.", "workload", "direction")
 	notificationOutcomes := appMetrics.NewCounterVec("billpiggy_notifications_total", "Total resolved notification deliveries.", "kind", "outcome")
+	// Registered first so it wraps everything else: a preflight OPTIONS
+	// request must get a CORS response before it ever reaches auth or route
+	// handling, not a 405 from falling through unmatched.
+	r.Use(cors.Middleware(cors.ParseOrigins(cfg.CORSAllowedOrigins)))
 	r.Use(metrics.HTTPMiddleware(httpRequests, httpLatency, routePattern))
 
 	adapters := applicationStores(cfg, healthRegistry)
