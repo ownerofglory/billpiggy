@@ -98,6 +98,11 @@ jobs:
           CORS_ALLOWED_ORIGINS: ${{ vars.CORS_ALLOWED_ORIGINS }}
           KUBERNETES_NAMESPACE: ${{ secrets.KUBERNETES_NAMESPACE }}
         run: |
+          # Helm's --set mini-language uses commas to separate key=value
+          # pairs, so a raw comma-separated CORS_ALLOWED_ORIGINS gets
+          # misparsed as multiple assignments ("key ... has no value"). Every
+          # comma inside the value itself must be escaped as \, first.
+          CORS_ALLOWED_ORIGINS_ESCAPED="${CORS_ALLOWED_ORIGINS//,/\\,}"
           helm upgrade --install billpiggy "$CHART_REGISTRY" \
             --version "$CHART_VERSION" \
             --set-string image.repository="$IMAGE_REPOSITORY" \
@@ -111,7 +116,7 @@ jobs:
             --set-string env.appEnvironment="production" \
             --set-string env.openAIAssistantModel="$OPENAI_ASSISTANT_MODEL" \
             --set-string env.openAIBaseURL="$OPENAI_BASE_URL" \
-            --set-string env.corsAllowedOrigins="$CORS_ALLOWED_ORIGINS" \
+            --set-string env.corsAllowedOrigins="$CORS_ALLOWED_ORIGINS_ESCAPED" \
             --set-string existingSecret="billpiggy-app" \
             --namespace="$KUBERNETES_NAMESPACE" \
             --create-namespace \
