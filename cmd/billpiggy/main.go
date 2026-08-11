@@ -216,6 +216,8 @@ func main() {
 		var lastRun atomic.Int64
 		healthRegistry.Register("notification_worker", notificationWorkerHealth(&lastRun))
 		go deliverNotifications(ctx, notifications, adapters.identity, sender, &lastRun)
+	} else {
+		slog.Warn("email notifications disabled; set SMTP_ADDRESS to enable delivery")
 	}
 	retentionService, err := service.NewRetentionService(adapters.objectRefs, objectStore)
 	if err != nil {

@@ -4,9 +4,11 @@ import (
 	"context"
 	"mime"
 	"mime/multipart"
+	"net"
 	"net/mail"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestBuildMessageProducesParsableMultipartAlternative(t *testing.T) {
@@ -67,6 +69,53 @@ func TestBuildMessageStripsCRLFFromHeaderValues(t *testing.T) {
 	}
 	if strings.Contains(parsed.Header.Get("Subject"), "\r") || strings.Contains(parsed.Header.Get("Subject"), "\n") {
 		t.Fatalf("subject still contains a line break: %q", parsed.Header.Get("Subject"))
+	}
+}
+
+// TestSMTPSenderTimesOutInsteadOfHangingOnAnUnresponsiveServer proves the
+// fix for a real incident: a notification worker whose SMTP relay accepts
+// the TCP connection but never speaks blocked net/smtp.SendMail forever,
+// which froze the worker's health marker and eventually failed /readyz
+// permanently with no way to recover, since nothing ever unblocked it.
+func TestSMTPSenderTimesOutInsteadOfHangingOnAnUnresponsiveServer(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer listener.Close()
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		// Accept the connection but never write the SMTP greeting: without
+		// sendWithDeadline's connection deadline, net/smtp's read of it would
+		// block forever, exactly like an unreachable or firewalled relay.
+		<-stop
+	}()
+
+	original := sendTimeout
+	sendTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { sendTimeout = original })
+
+	sender, err := NewSMTPSender(listener.Addr().String(), "", "", "billpiggy@example.com")
+	if err != nil {
+		t.Fatalf("new sender: %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- sender.Send(context.Background(), "user@example.com", "subject", "text", "html") }()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("expected a timeout error from an unresponsive server")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Send did not return within 2s of the configured timeout; it hung")
 	}
 }
 
