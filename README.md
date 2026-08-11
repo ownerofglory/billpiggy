@@ -19,7 +19,10 @@ Go backend, PostgreSQL event store, hexagonal architecture.
   quarterly, yearly, or a custom day interval; auto-posts a confirmed expense as each
   occurrence falls due, with an optional advance-notice reminder.
 - **Analytics** — spend rollups by day/week/month/year, category, and tag; budget
-  suggestions; periodically generated CSV/PDF reports.
+  suggestions and per-budget progress against each budget's own period; period-over-period
+  comparison; top categories by change; burn rate (spend so far, projected total, budget
+  target); daily totals and weekday breakdown for calendar-heatmap style views; largest
+  individual expenses; periodically generated CSV/PDF reports.
 - **AI assistant** — a scoped, tool-calling chat assistant that answers questions about
   the user's own expenses and budgets over a server-sent-events stream. Never has
   unrestricted database access.

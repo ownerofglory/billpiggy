@@ -74,6 +74,15 @@ The event stream is indexed by aggregate and timestamp, and analytics projection
 pre-aggregated. If event volume makes time-window scans material, the `events.events`
 table can be converted to a TimescaleDB hypertable in a forward migration.
 
+`AnalyticsService` (`internal/core/service/analytics.go`) builds every read model it
+exposes — period comparison, top categories by change, burn rate, daily totals, weekday
+breakdown, largest expenses, and per-budget progress — from the same `day`-granularity
+rollup rows the `analytics_rollups` projection already maintains, plus one raw-expense
+query (sorted by amount) for the largest-expenses view. None of these views needed a new
+table or projection: the day-level rollup was already fine-grained enough to derive
+weekly/monthly/yearly aggregates, weekday groupings, and calendar-style daily totals at
+query time.
+
 ## Identity and authorization
 
 Users cannot self-register. An administrator creates an invitation, and only a

@@ -38,4 +38,10 @@ type Data struct {
 	Rows []ExpenseRow
 	// Totals summarises spend per category and currency.
 	Totals []CategoryTotal
+	// CategoryColors optionally maps a category name to its hex color, the
+	// same swatch the app itself shows for that category. A category with no
+	// entry (a custom category with no color set, or "Uncategorized") falls
+	// back to a generated color so charts always render something reasonable
+	// rather than a blank or erroring one.
+	CategoryColors map[string]string
 }

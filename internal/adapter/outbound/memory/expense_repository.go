@@ -75,7 +75,11 @@ func (r *ExpenseRepository) ListExpenses(_ context.Context, filter outbound.Expe
 		}
 		expenses = append(expenses, cloneExpense(expense))
 	}
-	sort.Slice(expenses, func(i, j int) bool { return expenses[i].OccurredAt.After(expenses[j].OccurredAt) })
+	if filter.SortBy == outbound.ExpenseSortAmount {
+		sort.Slice(expenses, func(i, j int) bool { return expenses[i].AmountMinor > expenses[j].AmountMinor })
+	} else {
+		sort.Slice(expenses, func(i, j int) bool { return expenses[i].OccurredAt.After(expenses[j].OccurredAt) })
+	}
 	start := min(filter.Offset, len(expenses))
 	end := min(start+filter.Limit, len(expenses))
 	return expenses[start:end], nil
@@ -139,8 +143,11 @@ func matchesExpense(expense domain.ExpenseRecord, filter outbound.ExpenseListFil
 }
 
 func cloneExpense(expense domain.ExpenseRecord) domain.ExpenseRecord {
-	expense.TagIDs = append([]string(nil), expense.TagIDs...)
-	expense.Items = append([]domain.ExpenseItem(nil), expense.Items...)
+	// Starting from []T{} rather than ([]T)(nil) guarantees a non-nil
+	// TagIDs/Items even when the source is nil/empty, so responses never
+	// serialize "tagIDs": null / "items": null.
+	expense.TagIDs = append([]string{}, expense.TagIDs...)
+	expense.Items = append([]domain.ExpenseItem{}, expense.Items...)
 	return expense
 }
 

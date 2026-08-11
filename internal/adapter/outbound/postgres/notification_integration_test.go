@@ -176,6 +176,11 @@ func TestIdentityRepositoryNotificationPreferencesRoundTrip(t *testing.T) {
 	if len(user.NotificationPreferences) != 0 {
 		t.Fatalf("preferences = %#v, want empty by default", user.NotificationPreferences)
 	}
+	// A never-set preferences column previously left this nil, serializing
+	// "notification_preferences": null instead of {}.
+	if user.NotificationPreferences == nil {
+		t.Fatal("NotificationPreferences is nil, want a non-nil empty map")
+	}
 
 	user.NotificationPreferences = map[domain.NotificationKind]bool{domain.NotificationBudgetAlert: false, domain.NotificationReportReady: true}
 	if err := repository.UpdateUser(ctx, user); err != nil {

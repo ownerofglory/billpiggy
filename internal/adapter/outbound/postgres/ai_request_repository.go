@@ -50,7 +50,9 @@ func (r *AIRequestRepository) Summarize(ctx context.Context, since time.Time) (d
 		return domain.AIUsageSummary{}, fmt.Errorf("summarize AI requests: %w", err)
 	}
 	defer rows.Close()
-	summary := domain.AIUsageSummary{Since: since}
+	// ByWorkload pre-initialized: a quiet window with zero AI requests would
+	// otherwise leave it nil, serializing "byWorkload": null instead of [].
+	summary := domain.AIUsageSummary{Since: since, ByWorkload: []domain.AIWorkloadUsage{}}
 	for rows.Next() {
 		var workload string
 		var usage domain.AIWorkloadUsage

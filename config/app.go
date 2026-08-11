@@ -53,6 +53,13 @@ type BillPiggyAppConfig struct {
 	// OpenAIBaseURL overrides the API endpoint, for routing through a
 	// compatible gateway. Empty uses the provider's own endpoint.
 	OpenAIBaseURL string `env:"OPENAI_BASE_URL"`
+	// MetricsToken gates /metrics behind a static bearer token: it is
+	// scraped by Prometheus, a machine caller that cannot do the interactive
+	// JWT login/refresh every other endpoint expects. Empty disables
+	// scraping entirely (fails closed) rather than leaving it open — the
+	// route otherwise had no authentication at all, exposing user counts,
+	// request volumes, and route names to anyone who could reach it.
+	MetricsToken string `env:"METRICS_TOKEN"`
 }
 
 // Validate rejects production configurations that could silently lose state or sign unsafe tokens.

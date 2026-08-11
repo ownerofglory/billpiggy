@@ -306,7 +306,11 @@ func newUser(email, password, displayName string, role domain.UserRole, now time
 	if err != nil {
 		return domain.AppUser{}, fmt.Errorf("hash password: %w", err)
 	}
-	return domain.AppUser{ID: uuid.NewString(), Email: normalizeEmail(email), PasswordHash: string(hash), DisplayName: strings.TrimSpace(displayName), Role: role, EmailNotificationsEnabled: true, AIEnabled: true, CreatedAt: now, UpdatedAt: now}, nil
+	// NotificationPreferences starts as an empty (non-nil) map so a freshly
+	// created user's profile serializes "notification_preferences": {}
+	// rather than null, until PUT /users/me/notification-preferences sets
+	// any real overrides.
+	return domain.AppUser{ID: uuid.NewString(), Email: normalizeEmail(email), PasswordHash: string(hash), DisplayName: strings.TrimSpace(displayName), Role: role, EmailNotificationsEnabled: true, AIEnabled: true, NotificationPreferences: map[domain.NotificationKind]bool{}, CreatedAt: now, UpdatedAt: now}, nil
 }
 
 // ListUsers returns active users for an administrator.

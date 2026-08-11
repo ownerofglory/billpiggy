@@ -2,6 +2,8 @@ package service_test
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,6 +57,72 @@ func TestExpenseServiceLifecycleAndOwnerScopedFiltering(t *testing.T) {
 	}
 	if len(events.Events()) != 3 || events.Events()[2].EventType != "expense_removed" {
 		t.Fatalf("unexpected deletion events: %#v", events.Events())
+	}
+}
+
+// TestExpenseServiceRejectsOversizedFields guards the "lengths" validation
+// the intake pipeline's design promises: nothing upstream (the AI schema, the
+// database's plain TEXT columns) bounds how long these fields can be, so
+// validateExpense is the only place that does. An adversarial or malformed
+// draft — AI-extracted or a directly-called API request — must not be able
+// to persist an unbounded string or an unbounded number of line items.
+func TestExpenseServiceRejectsOversizedFields(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	repository, events := memory.NewExpenseRepository(), memory.NewEventStore()
+	expenses, err := service.NewExpenseService(repository, events, memory.NewUnitOfWork(repository, events))
+	if err != nil {
+		t.Fatalf("new expense service: %v", err)
+	}
+	base := service.CreateExpenseCommand{
+		Title: "Cinema", AmountMinor: 2500, Currency: "EUR", OccurredAt: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
+	}
+
+	oversizedTitle := base
+	oversizedTitle.Title = strings.Repeat("a", 201)
+	if _, err := expenses.CreateExpense(ctx, "owner-1", oversizedTitle); !errors.Is(err, service.ErrInvalidExpense) {
+		t.Fatalf("oversized title: err = %v, want ErrInvalidExpense", err)
+	}
+
+	oversizedCategory := base
+	oversizedCategory.CategoryName = strings.Repeat("a", 101)
+	if _, err := expenses.CreateExpense(ctx, "owner-1", oversizedCategory); !errors.Is(err, service.ErrInvalidExpense) {
+		t.Fatalf("oversized category name: err = %v, want ErrInvalidExpense", err)
+	}
+
+	oversizedAddress := base
+	oversizedAddress.Address = strings.Repeat("a", 301)
+	if _, err := expenses.CreateExpense(ctx, "owner-1", oversizedAddress); !errors.Is(err, service.ErrInvalidExpense) {
+		t.Fatalf("oversized address: err = %v, want ErrInvalidExpense", err)
+	}
+
+	tooManyItems := base
+	tooManyItems.Items = make([]domain.ExpenseItem, 101)
+	for i := range tooManyItems.Items {
+		tooManyItems.Items[i] = domain.ExpenseItem{Title: "item", AmountMinor: 1}
+	}
+	if _, err := expenses.CreateExpense(ctx, "owner-1", tooManyItems); !errors.Is(err, service.ErrInvalidExpense) {
+		t.Fatalf("too many items: err = %v, want ErrInvalidExpense", err)
+	}
+
+	oversizedItemTitle := base
+	oversizedItemTitle.Items = []domain.ExpenseItem{{Title: strings.Repeat("a", 201), AmountMinor: 1}}
+	if _, err := expenses.CreateExpense(ctx, "owner-1", oversizedItemTitle); !errors.Is(err, service.ErrInvalidExpense) {
+		t.Fatalf("oversized item title: err = %v, want ErrInvalidExpense", err)
+	}
+
+	excessiveAmount := base
+	excessiveAmount.AmountMinor = 1_000_000_000_01
+	if _, err := expenses.CreateExpense(ctx, "owner-1", excessiveAmount); !errors.Is(err, service.ErrInvalidExpense) {
+		t.Fatalf("excessive amount: err = %v, want ErrInvalidExpense", err)
+	}
+
+	// Right at the bound must still succeed — this is a length guard, not an
+	// arbitrarily strict one.
+	atTheBound := base
+	atTheBound.Title = strings.Repeat("a", 200)
+	if _, err := expenses.CreateExpense(ctx, "owner-1", atTheBound); err != nil {
+		t.Fatalf("title exactly at the bound was rejected: %v", err)
 	}
 }
 

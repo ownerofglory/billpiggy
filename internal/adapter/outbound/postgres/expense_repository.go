@@ -114,8 +114,12 @@ func (r *ExpenseRepository) ListExpenses(ctx context.Context, filter outbound.Ex
 		args = append(args, tagIDs)
 		query += fmt.Sprintf(` and (select count(*) from expenses.expense_tags et where et.expense_id = e.id and et.tag_id = any($%d::uuid[])) = cardinality($%d::uuid[])`, len(args), len(args))
 	}
+	orderBy := "e.occurred_at desc, e.id"
+	if filter.SortBy == outbound.ExpenseSortAmount {
+		orderBy = "e.amount_minor desc, e.id"
+	}
 	args = append(args, filter.Limit, filter.Offset)
-	query += fmt.Sprintf(" order by e.occurred_at desc, e.id limit $%d offset $%d", len(args)-1, len(args))
+	query += fmt.Sprintf(" order by %s limit $%d offset $%d", orderBy, len(args)-1, len(args))
 
 	querier := pgxtx.From(ctx, r.pool)
 	rows, err := querier.Query(ctx, query, args...)
@@ -205,7 +209,12 @@ func loadRelations(ctx context.Context, querier pgxtx.Querier, expenses []domain
 }
 
 func scanExpense(row pgx.Row) (domain.ExpenseRecord, error) {
-	var expense domain.ExpenseRecord
+	// TagIDs/Items start as empty (not nil) slices: loadRelations only
+	// appends when a matching row exists, so an expense with zero tags or
+	// items would otherwise serialize as "tagIDs": null / "items": null
+	// instead of [] — a real spec violation the frontend already had to
+	// work around defensively.
+	expense := domain.ExpenseRecord{TagIDs: []string{}, Items: []domain.ExpenseItem{}}
 	var status string
 	err := row.Scan(&expense.ID, &expense.OwnerID, &expense.Title, &expense.AmountMinor, &expense.Currency,
 		&expense.OccurredAt, &expense.CategoryID, &expense.CategoryName, &status, &expense.SharedGroupID,

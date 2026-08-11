@@ -15,6 +15,21 @@ import (
 
 var ErrInvalidExpense = errors.New("invalid expense")
 
+// Bounds enforced by validateExpense. None of expenses.expenses' text columns
+// have a database-level length constraint (plain TEXT), and nothing upstream
+// enforces one either — an AI-extracted draft is schema-constrained on which
+// fields it can carry, but not on how long any of them are. These exist so a
+// malformed or adversarial draft (or a directly-called API request) cannot
+// persist an unbounded string or an unbounded number of line items.
+const (
+	maxExpenseTitleLength       = 200
+	maxCategoryNameLength       = 100
+	maxAddressLength            = 300
+	maxExpenseItems             = 100
+	maxItemTitleLength          = 200
+	maxAmountMinor        int64 = 1_000_000_000_00 // 1 billion currency units, in minor units
+)
+
 // ObjectResourceExpenseReceipt identifies expense receipts to the object
 // reference tracker.
 const ObjectResourceExpenseReceipt = "expense_receipt"
@@ -125,11 +140,15 @@ func (s *ExpenseService) visibleGroupIDs(ctx context.Context, viewer domain.AppU
 // CreateExpense creates an expense for the authenticated owner.
 func (s *ExpenseService) CreateExpense(ctx context.Context, ownerID string, command CreateExpenseCommand) (domain.ExpenseRecord, error) {
 	now := s.now()
+	// append(([]T)(nil), src...) still returns nil when src is nil/empty —
+	// starting from []T{} instead guarantees a non-nil TagIDs/Items even
+	// when the command omits them, so the create response never serializes
+	// "tagIDs": null / "items": null.
 	expense := domain.ExpenseRecord{
 		ID: uuid.NewString(), OwnerID: ownerID, Title: strings.TrimSpace(command.Title), AmountMinor: command.AmountMinor,
 		Currency: strings.ToUpper(strings.TrimSpace(command.Currency)), OccurredAt: command.OccurredAt.UTC(), CategoryID: command.CategoryID,
-		CategoryName: strings.TrimSpace(command.CategoryName), TagIDs: append([]string(nil), command.TagIDs...), Status: command.Status,
-		SharedGroupID: command.SharedGroupID, Items: append([]domain.ExpenseItem(nil), command.Items...), Latitude: command.Latitude,
+		CategoryName: strings.TrimSpace(command.CategoryName), TagIDs: append([]string{}, command.TagIDs...), Status: command.Status,
+		SharedGroupID: command.SharedGroupID, Items: append([]domain.ExpenseItem{}, command.Items...), Latitude: command.Latitude,
 		Longitude: command.Longitude, Address: strings.TrimSpace(command.Address), ReceiptObjectKey: command.ReceiptObjectKey, CreatedAt: now, UpdatedAt: now,
 	}
 	if expense.Status == "" {
@@ -165,7 +184,7 @@ func (s *ExpenseService) UpdateExpense(ctx context.Context, ownerID, expenseID s
 	}
 	expense.Title, expense.AmountMinor, expense.Currency = strings.TrimSpace(command.Title), command.AmountMinor, strings.ToUpper(strings.TrimSpace(command.Currency))
 	expense.OccurredAt, expense.CategoryID, expense.CategoryName = command.OccurredAt.UTC(), command.CategoryID, strings.TrimSpace(command.CategoryName)
-	expense.TagIDs, expense.Status, expense.SharedGroupID, expense.Items = append([]string(nil), command.TagIDs...), command.Status, command.SharedGroupID, append([]domain.ExpenseItem(nil), command.Items...)
+	expense.TagIDs, expense.Status, expense.SharedGroupID, expense.Items = append([]string{}, command.TagIDs...), command.Status, command.SharedGroupID, append([]domain.ExpenseItem{}, command.Items...)
 	expense.Latitude, expense.Longitude, expense.Address = command.Latitude, command.Longitude, strings.TrimSpace(command.Address)
 	// ReceiptObjectKey is deliberately left untouched here: the HTTP DTO never
 	// carries it, so overwriting it from the command wiped every receipt on
@@ -319,6 +338,20 @@ type UpdateExpenseCommand = CreateExpenseCommand
 func validateExpense(expense domain.ExpenseRecord) error {
 	if expense.OwnerID == "" || expense.Title == "" || expense.AmountMinor < 0 || len(expense.Currency) != 3 || expense.OccurredAt.IsZero() {
 		return ErrInvalidExpense
+	}
+	if len(expense.Title) > maxExpenseTitleLength || len(expense.CategoryName) > maxCategoryNameLength || len(expense.Address) > maxAddressLength {
+		return ErrInvalidExpense
+	}
+	if expense.AmountMinor > maxAmountMinor {
+		return ErrInvalidExpense
+	}
+	if len(expense.Items) > maxExpenseItems {
+		return ErrInvalidExpense
+	}
+	for _, item := range expense.Items {
+		if len(item.Title) > maxItemTitleLength || item.AmountMinor < 0 || item.AmountMinor > maxAmountMinor {
+			return ErrInvalidExpense
+		}
 	}
 	switch expense.Status {
 	case domain.ExpenseDraft, domain.ExpenseConfirmed, domain.ExpenseShared, domain.ExpenseReimbursed:

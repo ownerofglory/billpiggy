@@ -34,6 +34,7 @@ func (h reportHandler) owner(r *http.Request) string {
 //
 //	@Summary	List generated reports
 //	@Tags		reports
+//	@Security	ApiKeyAuth
 //	@Produce	json
 //	@Success	200	{array}		domain.Report
 //	@Failure	401	{object}	map[string]string
@@ -51,6 +52,7 @@ func (h reportHandler) list(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	Download a generated report
 //	@Tags		reports
+//	@Security	ApiKeyAuth
 //	@Param		reportID	path	string	true	"Report ID"
 //	@Success	302
 //	@Failure	404	{object}	map[string]string

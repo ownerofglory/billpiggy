@@ -39,7 +39,10 @@ func (r *GroupRepository) ListVisibleGroups(ctx context.Context, viewer string, 
 	}
 	groups := []domain.UserGroup{}
 	for rows.Next() {
-		var g domain.UserGroup
+		// loadGroupMembers below only appends when a matching row exists, so
+		// a group with zero members needs MemberIDs pre-initialized to stay
+		// [] rather than null in the response.
+		g := domain.UserGroup{MemberIDs: []string{}}
 		if err := rows.Scan(&g.ID, &g.Name, &g.CreatedBy, &g.CreatedAt); err != nil {
 			rows.Close()
 			return nil, err
@@ -61,7 +64,7 @@ func (r *GroupRepository) ListVisibleGroups(ctx context.Context, viewer string, 
 // GetGroup returns one group regardless of visibility.
 func (r *GroupRepository) GetGroup(ctx context.Context, groupID string) (domain.UserGroup, error) {
 	querier := pgxtx.From(ctx, r.pool)
-	var g domain.UserGroup
+	g := domain.UserGroup{MemberIDs: []string{}}
 	if err := querier.QueryRow(ctx, `select id::text,name,created_by::text,created_at from identity.groups where id=$1`, groupID).Scan(&g.ID, &g.Name, &g.CreatedBy, &g.CreatedAt); err != nil {
 		return domain.UserGroup{}, err
 	}

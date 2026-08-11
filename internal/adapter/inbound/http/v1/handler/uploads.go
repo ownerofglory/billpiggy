@@ -66,6 +66,7 @@ func (h uploadHandler) actor(r *http.Request) domain.AppUser {
 //
 //	@Summary	Upload profile image
 //	@Tags		users
+//	@Security	ApiKeyAuth
 //	@Accept		multipart/form-data
 //	@Produce	json
 //	@Param		file	formData	file	true	"Image file, maximum 10 MiB"
@@ -101,6 +102,7 @@ func (h uploadHandler) profileImage(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	Download profile image
 //	@Tags		users
+//	@Security	ApiKeyAuth
 //	@Success	302
 //	@Failure	404	{object}	map[string]string
 //	@Router		/billpiggy/api/v1/users/me/profile-image [get]
@@ -119,6 +121,7 @@ func (h uploadHandler) downloadProfileImage(w http.ResponseWriter, r *http.Reque
 //
 //	@Summary	Upload expense receipt
 //	@Tags		expenses
+//	@Security	ApiKeyAuth
 //	@Accept		multipart/form-data
 //	@Produce	json
 //	@Param		expenseID	path		string	true	"Expense ID"
@@ -159,6 +162,7 @@ func (h uploadHandler) receipt(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	Download expense receipt
 //	@Tags		expenses
+//	@Security	ApiKeyAuth
 //	@Param		expenseID	path	string	true	"Expense ID"
 //	@Success	302
 //	@Failure	404	{object}	map[string]string

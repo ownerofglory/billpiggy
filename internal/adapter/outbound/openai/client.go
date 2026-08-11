@@ -234,6 +234,19 @@ func (c *Client) params(request domain.CompletionRequest) (openai.ChatCompletion
 	}
 	if len(request.Tools) > 0 {
 		params.Tools = convertTools(request.Tools)
+		// Reasoning models default to a non-zero reasoning_effort server-side
+		// even when the client omits it, and the Chat Completions API rejects
+		// that combination outright once function tools are attached:
+		// "Function tools with reasoning_effort are not supported for
+		// <model> in /v1/chat/completions. To use function tools, use
+		// /v1/responses or set reasoning_effort to 'none'." Forcing it off
+		// here is that documented workaround. Scoped to tool-bearing requests
+		// only, since that's exactly the condition the API rejects — the
+		// receipt- and dictation-extraction requests never set Tools, so
+		// they're unaffected either way. "none" isn't among the SDK's own
+		// ReasoningEffort constants (minimal/low/medium/high) yet; the type
+		// is a bare string, so it's spelled out directly instead.
+		params.ReasoningEffort = shared.ReasoningEffort("none")
 	}
 	if request.Temperature != nil {
 		params.Temperature = openai.Float(*request.Temperature)

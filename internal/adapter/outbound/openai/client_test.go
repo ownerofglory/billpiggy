@@ -252,6 +252,47 @@ func TestCompleteSendsToolsAndReadsToolCalls(t *testing.T) {
 	}
 }
 
+func TestCompleteForcesReasoningEffortOffWhenToolsArePresent(t *testing.T) {
+	t.Parallel()
+	recorded := &capture{}
+	url := newServer(t, recorded, jsonResponse(`{"choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":"ok"}}]}`))
+
+	client := newClient(t, url)
+	_, err := client.Complete(context.Background(), domain.CompletionRequest{
+		Messages: []domain.Message{domain.UserMessage("what did I spend on food?")},
+		Tools: []domain.Tool{{
+			Name:        "query_expenses",
+			Description: "Look up the owner's expenses",
+			Parameters:  map[string]any{"type": "object", "properties": map[string]any{}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+
+	if got := recorded.body["reasoning_effort"]; got != "none" {
+		t.Fatalf("reasoning_effort = %v, want \"none\" when tools are attached", got)
+	}
+}
+
+func TestCompleteOmitsReasoningEffortWithoutTools(t *testing.T) {
+	t.Parallel()
+	recorded := &capture{}
+	url := newServer(t, recorded, jsonResponse(`{"choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":"ok"}}]}`))
+
+	client := newClient(t, url)
+	_, err := client.Complete(context.Background(), domain.CompletionRequest{
+		Messages: []domain.Message{domain.UserMessage("hello")},
+	})
+	if err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+
+	if _, present := recorded.body["reasoning_effort"]; present {
+		t.Fatalf("reasoning_effort = %v, want the field omitted without tools", recorded.body["reasoning_effort"])
+	}
+}
+
 func TestCompleteSendsStructuredOutputSchema(t *testing.T) {
 	t.Parallel()
 	type extractedExpense struct {

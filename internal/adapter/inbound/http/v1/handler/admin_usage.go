@@ -27,6 +27,7 @@ type adminUsageHandler struct{ service inbound.AdminUsageService }
 //
 //	@Summary	Get super-admin usage summary
 //	@Tags		administration
+//	@Security	ApiKeyAuth
 //	@Produce	json
 //	@Param		since	query		string	false	"RFC3339 inclusive start; defaults to the last 24 hours"
 //	@Success	200		{object}	service.UsageSummary

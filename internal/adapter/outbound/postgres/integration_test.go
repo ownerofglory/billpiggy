@@ -12,6 +12,7 @@ package postgres_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sort"
@@ -247,6 +248,63 @@ func TestExpenseRepositoryRoundTrip(t *testing.T) {
 	}
 }
 
+// TestExpenseRepositoryWithNoTagsOrItemsSerializesEmptyArrays is a
+// regression test for a real production bug: an expense with zero tags and
+// zero line items previously scanned with nil TagIDs/Items, which
+// encoding/json serializes as "tagIDs": null / "items": null instead of the
+// [] the OpenAPI spec promises. The frontend crashed on the null response.
+func TestExpenseRepositoryWithNoTagsOrItemsSerializesEmptyArrays(t *testing.T) {
+	pool := newPool(t)
+	repository := postgresadapter.NewExpenseRepository(pool)
+	owner := seedUser(t, pool, "no-relations@example.test")
+	category := defaultCategoryID(t, pool, "Food")
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	expense := domain.ExpenseRecord{
+		ID: uuid.NewString(), OwnerID: owner, Title: "Bread", AmountMinor: 480, Currency: "EUR",
+		OccurredAt: now, CategoryID: category, Status: domain.ExpenseConfirmed, CreatedAt: now, UpdatedAt: now,
+	}
+	if err := repository.CreateExpense(context.Background(), expense); err != nil {
+		t.Fatalf("create expense: %v", err)
+	}
+
+	stored, err := repository.GetExpense(context.Background(), owner, expense.ID)
+	if err != nil {
+		t.Fatalf("get expense: %v", err)
+	}
+	if stored.TagIDs == nil {
+		t.Fatal("TagIDs is nil, want a non-nil empty slice")
+	}
+	if stored.Items == nil {
+		t.Fatal("Items is nil, want a non-nil empty slice")
+	}
+
+	raw, err := json.Marshal(stored)
+	if err != nil {
+		t.Fatalf("marshal expense: %v", err)
+	}
+	if strings.Contains(string(raw), `"tagIDs":null`) || strings.Contains(string(raw), `"items":null`) {
+		t.Fatalf("expense serialized with a null list field: %s", raw)
+	}
+
+	values, err := repository.ListExpenses(context.Background(), outbound.ExpenseListFilter{OwnerID: owner, Limit: 25})
+	if err != nil {
+		t.Fatalf("list expenses: %v", err)
+	}
+	found := false
+	for _, value := range values {
+		if value.ID != expense.ID {
+			continue
+		}
+		found = true
+		if value.TagIDs == nil || value.Items == nil {
+			t.Fatalf("listed expense has a nil list field: %#v", value)
+		}
+	}
+	if !found {
+		t.Fatal("created expense missing from ListExpenses")
+	}
+}
+
 func TestExpenseRepositoryFiltersTagsBeforePaging(t *testing.T) {
 	pool := newPool(t)
 	repository := postgresadapter.NewExpenseRepository(pool)
@@ -282,6 +340,39 @@ func TestExpenseRepositoryFiltersTagsBeforePaging(t *testing.T) {
 		if len(expense.TagIDs) != 1 || expense.TagIDs[0] != wanted {
 			t.Fatalf("unexpected expense in a filtered page: %#v", expense)
 		}
+	}
+}
+
+func TestExpenseRepositorySortsByAmountWhenRequested(t *testing.T) {
+	pool := newPool(t)
+	repository := postgresadapter.NewExpenseRepository(pool)
+	owner := seedUser(t, pool, "amount-sort@example.test")
+	category := defaultCategoryID(t, pool, "Food")
+	base := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	amounts := []int64{300, 900, 100, 500}
+	for i, amount := range amounts {
+		expense := expenseRecord(owner, category, amount, base.AddDate(0, 0, i))
+		if err := repository.CreateExpense(context.Background(), expense); err != nil {
+			t.Fatalf("create expense %d: %v", i, err)
+		}
+	}
+
+	values, err := repository.ListExpenses(context.Background(), outbound.ExpenseListFilter{
+		OwnerID: owner, SortBy: outbound.ExpenseSortAmount, Limit: 10,
+	})
+	if err != nil {
+		t.Fatalf("list expenses: %v", err)
+	}
+	if len(values) != len(amounts) {
+		t.Fatalf("got %d expenses, want %d", len(values), len(amounts))
+	}
+	for i := 1; i < len(values); i++ {
+		if values[i-1].AmountMinor < values[i].AmountMinor {
+			t.Fatalf("expenses not sorted descending by amount: %#v", values)
+		}
+	}
+	if values[0].AmountMinor != 900 || values[len(values)-1].AmountMinor != 100 {
+		t.Fatalf("unexpected sort order: got amounts %d..%d", values[0].AmountMinor, values[len(values)-1].AmountMinor)
 	}
 }
 

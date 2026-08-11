@@ -35,12 +35,24 @@ const (
 	IntakeRateInterval = 24 * time.Hour
 )
 
-// extractionInstructions frame every intake extraction call.
-const extractionInstructions = "Extract a single expense from the provided receipt or description. " +
-	"Respond only with the structured fields requested. " +
-	"If a total is not stated explicitly, sum the line items. " +
-	"If the currency is not stated, use EUR. " +
-	"If the date is not stated, use the current date."
+// extractionInstructions frame every intake extraction call, with today's
+// date spelled out explicitly rather than asking the model to infer it.
+//
+// "Use the current date" alone is not an instruction a model can actually
+// follow: it has no clock, only a training cutoff, and would answer with
+// whatever date it associates with "today" from training data — observed in
+// production as every date-less extraction defaulting to October 2023
+// regardless of when the request was actually made. Telling it the real date
+// removes the guess entirely.
+func extractionInstructions(now time.Time) string {
+	return "Extract a single expense from the provided receipt or description. " +
+		"Respond only with the structured fields requested. " +
+		"If a total is not stated explicitly, sum the line items. " +
+		"If the currency is not stated, use EUR. " +
+		"Today's date is " + now.Format("2006-01-02") + ". If the receipt or description does not state a date, use today's date — never a date from training data or any other guess. " +
+		"List every individual line item shown, each with its own title and amount, even if there are many; do not collapse multiple items into one. " +
+		"If a merchant address is printed, extract it exactly as shown; otherwise leave it empty."
+}
 
 // expenseDraftSchema is generated once: reflection is not free, and the
 // schema never changes at runtime.
@@ -62,6 +74,9 @@ type ExpenseIntakeService struct {
 	provider    outbound.AIProvider
 	transcriber outbound.AudioTranscriber
 	limit       ratelimit.Limiter
+	// now is overridable so a test can assert the exact date instructions
+	// carry, rather than racing time.Now() during the assertion.
+	now func() time.Time
 }
 
 // NewExpenseIntakeService creates an intake service. transcriber may be nil,
@@ -76,12 +91,20 @@ func NewExpenseIntakeService(provider outbound.AIProvider, transcriber outbound.
 		provider:    provider,
 		transcriber: transcriber,
 		limit:       ratelimit.NewFixedWindow(IntakeRateLimit, IntakeRateInterval),
+		now:         time.Now,
 	}, nil
 }
 
 // WithLimiter overrides the default in-memory rate limiter.
 func (s *ExpenseIntakeService) WithLimiter(limiter ratelimit.Limiter) *ExpenseIntakeService {
 	s.limit = limiter
+	return s
+}
+
+// WithClock overrides the default time.Now, so a test can assert the exact
+// date extraction instructions carry.
+func (s *ExpenseIntakeService) WithClock(now func() time.Time) *ExpenseIntakeService {
+	s.now = now
 	return s
 }
 
@@ -102,7 +125,7 @@ func (s *ExpenseIntakeService) ExtractFromReceipt(ctx context.Context, ownerID s
 		UserID: ownerID,
 		Model:  receiptExtractionModel,
 		Messages: []domain.Message{
-			domain.SystemMessage(extractionInstructions),
+			domain.SystemMessage(extractionInstructions(s.now())),
 			domain.UserImageMessage("Extract the expense from this receipt.", dataURI),
 		},
 		ResponseFormat: expenseDraftResponseFormat(),
@@ -173,7 +196,7 @@ func (s *ExpenseIntakeService) extractFromText(ctx context.Context, ownerID, tex
 		UserID: ownerID,
 		Model:  sentenceExtractionModel,
 		Messages: []domain.Message{
-			domain.SystemMessage(extractionInstructions),
+			domain.SystemMessage(extractionInstructions(s.now())),
 			domain.UserMessage(text),
 		},
 		ResponseFormat: expenseDraftResponseFormat(),

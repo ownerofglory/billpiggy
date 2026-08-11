@@ -47,8 +47,13 @@ type Options struct {
 // ReceiptOptions returns the normalisation applied to uploaded receipts:
 // grayscale, bounded to a size that stays legible for extraction, and
 // re-encoded as JPEG.
+//
+// 2048/85 rather than the previous 1600/72: thermal-printer receipts pack
+// many line items into small, often faded print, and inconsistent line-item
+// extraction traced back to over-aggressive downscaling and JPEG compression
+// destroying exactly the fine detail a vision model needs to read them.
 func ReceiptOptions() Options {
-	return Options{MaxDimension: 1600, Grayscale: true, JPEGQuality: 72}
+	return Options{MaxDimension: 2048, Grayscale: true, JPEGQuality: 85}
 }
 
 // ProfileImageOptions returns the normalisation applied to profile images,

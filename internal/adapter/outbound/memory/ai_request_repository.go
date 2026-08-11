@@ -56,7 +56,9 @@ func (r *AIRequestRepository) Summarize(_ context.Context, since time.Time) (dom
 		usage.InputTokens += record.Usage.InputTokens
 		usage.OutputTokens += record.Usage.OutputTokens
 	}
-	summary := domain.AIUsageSummary{Since: since}
+	// ByWorkload pre-initialized: a quiet window with zero AI requests would
+	// otherwise leave it nil, serializing "byWorkload": null instead of [].
+	summary := domain.AIUsageSummary{Since: since, ByWorkload: []domain.AIWorkloadUsage{}}
 	for _, workload := range order {
 		summary.ByWorkload = append(summary.ByWorkload, *totals[workload])
 	}

@@ -3,6 +3,7 @@ package auth
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -71,6 +72,27 @@ func (m *Middleware) RequirePermission(permission string, next http.Handler) htt
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// RequireBearerToken protects an endpoint with one static, pre-shared bearer
+// token, for a machine caller — a Prometheus scraper is the motivating case —
+// that cannot participate in the interactive login/refresh flow
+// RequireAuthentication expects. An empty want always rejects: without that,
+// an operator who forgets to configure the token would silently leave the
+// endpoint open rather than the fail-closed default this exists to provide.
+// The comparison is constant-time so response timing can't be used to guess
+// the token a byte at a time.
+func RequireBearerToken(want string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			token, ok := bearerToken(r.Header.Get("Authorization"))
+			if !ok || want == "" || subtle.ConstantTimeCompare([]byte(token), []byte(want)) != 1 {
+				writeError(w, http.StatusUnauthorized, "authentication required")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // IdentityFromContext returns the authenticated principal when middleware has run.

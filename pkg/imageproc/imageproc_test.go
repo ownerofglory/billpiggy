@@ -112,8 +112,8 @@ func TestNormalizeShrinksReceipts(t *testing.T) {
 	if len(result.Data) >= len(original) {
 		t.Fatalf("normalised receipt is %d bytes, original was %d", len(result.Data), len(original))
 	}
-	if result.Width != 1600 {
-		t.Fatalf("receipt width = %d, want the 1600px bound", result.Width)
+	if result.Width != 2048 {
+		t.Fatalf("receipt width = %d, want the 2048px bound", result.Width)
 	}
 }
 

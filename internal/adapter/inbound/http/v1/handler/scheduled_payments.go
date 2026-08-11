@@ -55,9 +55,16 @@ func (h scheduledPaymentHandler) actor(r *http.Request) domain.AppUser {
 }
 
 func (h scheduledPaymentHandler) payment(request scheduledPaymentRequest) domain.ScheduledPayment {
+	// Create/update respond with this value directly, without a DB re-read,
+	// so a request that omits tag_ids must still produce "tagIDs": [] here
+	// rather than null.
+	tagIDs := request.TagIDs
+	if tagIDs == nil {
+		tagIDs = []string{}
+	}
 	return domain.ScheduledPayment{
 		Title: request.Title, AmountMinor: request.AmountMinor, Currency: request.Currency,
-		CategoryID: request.CategoryID, CategoryName: request.CategoryName, TagIDs: request.TagIDs,
+		CategoryID: request.CategoryID, CategoryName: request.CategoryName, TagIDs: tagIDs,
 		SharedGroupID: request.SharedGroupID, Frequency: request.Frequency,
 		CustomIntervalDays: request.CustomIntervalDays, StartDate: request.StartDate, EndDate: request.EndDate,
 		AutoPost: request.AutoPost, ReminderDaysBefore: request.ReminderDaysBefore, Paused: request.Paused,
@@ -68,6 +75,7 @@ func (h scheduledPaymentHandler) payment(request scheduledPaymentRequest) domain
 //
 //	@Summary	List scheduled payments
 //	@Tags		scheduled-payments
+//	@Security	ApiKeyAuth
 //	@Produce	json
 //	@Success	200	{array}		domain.ScheduledPayment
 //	@Failure	401	{object}	map[string]string
@@ -85,6 +93,7 @@ func (h scheduledPaymentHandler) list(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	Get scheduled payment
 //	@Tags		scheduled-payments
+//	@Security	ApiKeyAuth
 //	@Produce	json
 //	@Param		paymentID	path		string	true	"Scheduled payment ID"
 //	@Success	200			{object}	domain.ScheduledPayment
@@ -103,6 +112,7 @@ func (h scheduledPaymentHandler) get(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	Create scheduled payment
 //	@Tags		scheduled-payments
+//	@Security	ApiKeyAuth
 //	@Accept		json
 //	@Produce	json
 //	@Param		request	body		scheduledPaymentRequest	true	"Scheduled payment"
@@ -131,6 +141,7 @@ func (h scheduledPaymentHandler) create(w http.ResponseWriter, r *http.Request) 
 //
 //	@Summary	Update scheduled payment
 //	@Tags		scheduled-payments
+//	@Security	ApiKeyAuth
 //	@Accept		json
 //	@Produce	json
 //	@Param		paymentID	path		string					true	"Scheduled payment ID"
@@ -166,6 +177,7 @@ func (h scheduledPaymentHandler) update(w http.ResponseWriter, r *http.Request) 
 //
 //	@Summary	Delete scheduled payment
 //	@Tags		scheduled-payments
+//	@Security	ApiKeyAuth
 //	@Param		paymentID	path	string	true	"Scheduled payment ID"
 //	@Success	204
 //	@Failure	404	{object}	map[string]string

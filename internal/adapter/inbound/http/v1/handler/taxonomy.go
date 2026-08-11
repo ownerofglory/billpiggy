@@ -40,6 +40,7 @@ func (h taxonomyHandler) owner(r *http.Request) string {
 //
 //	@Summary	List categories
 //	@Tags		taxonomy
+//	@Security	ApiKeyAuth
 //	@Produce	json
 //	@Success	200	{array}	domain.ExpenseCategory
 //	@Router		/billpiggy/api/v1/taxonomy/categories [get]
@@ -56,6 +57,7 @@ func (h taxonomyHandler) listCategories(w http.ResponseWriter, r *http.Request) 
 //
 //	@Summary	Create category
 //	@Tags		taxonomy
+//	@Security	ApiKeyAuth
 //	@Accept		json
 //	@Produce	json
 //	@Param		request	body		taxonomyRequest	true	"Category"
@@ -78,6 +80,7 @@ func (h taxonomyHandler) createCategory(w http.ResponseWriter, r *http.Request) 
 //
 //	@Summary	Update category
 //	@Tags		taxonomy
+//	@Security	ApiKeyAuth
 //	@Accept		json
 //	@Produce	json
 //	@Param		categoryID	path		string			true	"Category ID"
@@ -102,6 +105,7 @@ func (h taxonomyHandler) updateCategory(w http.ResponseWriter, r *http.Request) 
 //
 //	@Summary	Delete category
 //	@Tags		taxonomy
+//	@Security	ApiKeyAuth
 //	@Param		categoryID	path	string	true	"Category ID"
 //	@Success	204
 //	@Failure	404	{object}	map[string]string
@@ -118,6 +122,7 @@ func (h taxonomyHandler) deleteCategory(w http.ResponseWriter, r *http.Request) 
 //
 //	@Summary	List tags
 //	@Tags		taxonomy
+//	@Security	ApiKeyAuth
 //	@Produce	json
 //	@Success	200	{array}	domain.ExpenseTag
 //	@Router		/billpiggy/api/v1/taxonomy/tags [get]
@@ -134,6 +139,7 @@ func (h taxonomyHandler) listTags(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	Create tag
 //	@Tags		taxonomy
+//	@Security	ApiKeyAuth
 //	@Accept		json
 //	@Produce	json
 //	@Param		request	body		taxonomyRequest	true	"Tag"
@@ -156,6 +162,7 @@ func (h taxonomyHandler) createTag(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	Update tag
 //	@Tags		taxonomy
+//	@Security	ApiKeyAuth
 //	@Accept		json
 //	@Produce	json
 //	@Param		tagID	path		string			true	"Tag ID"
@@ -180,6 +187,7 @@ func (h taxonomyHandler) updateTag(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	Delete tag
 //	@Tags		taxonomy
+//	@Security	ApiKeyAuth
 //	@Param		tagID	path	string	true	"Tag ID"
 //	@Success	204
 //	@Failure	404	{object}	map[string]string
