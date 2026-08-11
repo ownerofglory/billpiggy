@@ -23,10 +23,9 @@ that production deployment requires approval.
 | `BOOTSTRAP_SUPER_ADMIN_PASSWORD` | First deploy | Strong password for the initial super-admin. |
 | `OPENAI_API_KEY` | Optional | Reserved for OpenAI-backed application capabilities. |
 | `METRICS_TOKEN` | Optional | Static bearer token gating `/metrics` (Prometheus can't do the interactive JWT login every other endpoint expects). Empty leaves `/metrics` unreachable rather than open — set this, and configure your scraper to send it as `Authorization: Bearer <token>`, before relying on scraping. Not yet wired into the chart's Secret template; there is no in-cluster `ServiceMonitor` today, so this has no consumer until one exists. |
-| `SMTP_ADDRESS` | Optional | SMTP relay address including port. |
-| `SMTP_USERNAME` | Optional | SMTP login user. |
-| `SMTP_PASSWORD` | Optional | SMTP login password. |
-| `SMTP_FROM` | Optional | Sender address for BillPiggy notification email. |
+| `MAILERSEND_API_KEY` | Optional | MailerSend API token. Enables the notification/invitation email worker when set; leave unset to run without outgoing email. |
+| `MAILERSEND_FROM_EMAIL` | Optional | Sender address for BillPiggy notification email. |
+| `MAILERSEND_FROM_NAME` | Optional | Sender display name. |
 | `MINIO_ENDPOINT` | Yes | In-cluster MinIO endpoint, e.g. `billpiggy-minio.billpiggy-infra.svc.cluster.local:9000`. |
 | `MINIO_ACCESS_KEY` | Yes | The scoped application user's access key (`MINIO_APP_USER` below) — never the root user. |
 | `MINIO_SECRET_KEY` | Yes | The scoped application user's secret key (`MINIO_APP_PASSWORD` below). |
@@ -48,6 +47,13 @@ that production deployment requires approval.
 Keep the bootstrap credentials available after initial deployment. They are only used
 when no super-admin exists, but are needed if a newly provisioned database must be
 bootstrapped.
+
+The notification worker caps outgoing email at `MAILERSEND_MONTHLY_LIMIT` (default `500`,
+matching MailerSend's free tier) per rolling 30-day window, shared across every recipient.
+Once reached, queued emails wait rather than fail permanently: sending resumes automatically
+as the window rolls over. This isn't currently exposed through the deploy workflow or Helm
+values — it's a plain container env var, so override it by adding it to the Secret/values
+alongside the `MAILERSEND_*` entries above if a paid plan raises the real quota.
 
 ## GitHub Environment or repository variables
 

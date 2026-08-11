@@ -55,6 +55,12 @@ const (
 	assistantRateInterval = time.Minute
 )
 
+// mailerSendQuotaWindow is the rolling window MailerSendMonthlyLimit is
+// enforced over. A rolling 30 days rather than a calendar month, since the
+// limiter has no notion of calendar boundaries — close enough to keep the
+// account within its plan without needing calendar-aware bookkeeping.
+const mailerSendQuotaWindow = 30 * 24 * time.Hour
+
 // subscriptionRegistrar registers a durable outbox subscription, backfilling it
 // with existing events the first time it is seen.
 type subscriptionRegistrar interface {
@@ -201,23 +207,37 @@ func main() {
 		slog.Error("configure projections", "error", err)
 		os.Exit(1)
 	}
-	if cfg.SMTPAddress != "" {
+	switch {
+	case cfg.MailerSendAPIKey != "" && cfg.MailerSendFromEmail != "":
 		notifications, err := service.NewNotificationService(adapters.notifications)
 		if err != nil {
 			slog.Error("configure notifications", "error", err)
 			os.Exit(1)
 		}
 		notifications = notifications.WithMetrics(notificationOutcomes)
-		sender, err := email.NewSMTPSender(cfg.SMTPAddress, cfg.SMTPUsername, cfg.SMTPPassword, cfg.SMTPFrom)
+		// Both required fields were just checked above, so this can only
+		// fail on a future validation this constructor grows; keep it a hard
+		// failure rather than silently swallowing a real misconfiguration.
+		sender, err := email.NewMailerSendSender(cfg.MailerSendAPIKey, cfg.MailerSendFromEmail, cfg.MailerSendFromName)
 		if err != nil {
-			slog.Error("configure smtp", "error", err)
+			slog.Error("configure mailersend", "error", err)
 			os.Exit(1)
 		}
+		limitedSender := email.WithSendLimit(sender, adapters.newLimiter(cfg.MailerSendMonthlyLimit, mailerSendQuotaWindow))
 		var lastRun atomic.Int64
 		healthRegistry.Register("notification_worker", notificationWorkerHealth(&lastRun))
-		go deliverNotifications(ctx, notifications, adapters.identity, sender, &lastRun)
-	} else {
-		slog.Warn("email notifications disabled; set SMTP_ADDRESS to enable delivery")
+		go deliverNotifications(ctx, notifications, adapters.identity, limitedSender, &lastRun)
+	case cfg.MailerSendAPIKey != "":
+		// A key with no sender address can never actually send: MailerSend
+		// requires a from address on every request, and there's no
+		// account-level default it falls back to. Disabling cleanly here,
+		// rather than letting email.NewMailerSendSender's validation error
+		// reach the code path below that exits the whole process, is what
+		// keeps a single missing var from crashing the entire app on
+		// startup over an optional feature.
+		slog.Warn("email notifications disabled; MAILERSEND_API_KEY is set but MAILERSEND_FROM_EMAIL is missing")
+	default:
+		slog.Warn("email notifications disabled; set MAILERSEND_API_KEY to enable delivery")
 	}
 	retentionService, err := service.NewRetentionService(adapters.objectRefs, objectStore)
 	if err != nil {

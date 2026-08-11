@@ -21,12 +21,17 @@ type BillPiggyAppConfig struct {
 	// super-admin on initial startup, since users cannot self-register.
 	BootstrapSuperAdminEmail    string `env:"BOOTSTRAP_SUPER_ADMIN_EMAIL"`
 	BootstrapSuperAdminPassword string `env:"BOOTSTRAP_SUPER_ADMIN_PASSWORD"`
-	// SMTPAddress enables the email worker when set; the remaining SMTP fields
-	// configure the connection it uses.
-	SMTPAddress  string `env:"SMTP_ADDRESS"`
-	SMTPUsername string `env:"SMTP_USERNAME"`
-	SMTPPassword string `env:"SMTP_PASSWORD"`
-	SMTPFrom     string `env:"SMTP_FROM"`
+	// MailerSendAPIKey enables the email worker when set; MailerSendFromEmail
+	// configures the sender address it uses. MailerSendFromName is optional.
+	MailerSendAPIKey    string `env:"MAILERSEND_API_KEY"`
+	MailerSendFromEmail string `env:"MAILERSEND_FROM_EMAIL"`
+	MailerSendFromName  string `env:"MAILERSEND_FROM_NAME"`
+	// MailerSendMonthlyLimit caps how many emails the worker sends per
+	// rolling 30-day window, so a provider quota (MailerSend's free tier is
+	// 500/month) is enforced locally instead of being discovered as a wall
+	// of rejected sends once it's already exhausted. Defaults to the free
+	// tier's own limit.
+	MailerSendMonthlyLimit int `env:"MAILERSEND_MONTHLY_LIMIT" envDefault:"500"`
 	// PublicBaseURL is the externally reachable app URL used to build links in
 	// outgoing emails, such as an invitation's accept link. Without it, an
 	// invitation email carries the raw invitation code instead of a link.
