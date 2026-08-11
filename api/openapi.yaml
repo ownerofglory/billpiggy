@@ -93,6 +93,42 @@ definitions:
     - BudgetMonthly
     - BudgetYearly
     - BudgetCustom
+  domain.BudgetProgress:
+    properties:
+      budgetID:
+        description: BudgetID identifies the budget.
+        type: string
+      categoryID:
+        description: CategoryID is the budget's category.
+        type: string
+      currency:
+        description: Currency is the ISO 4217 code the amounts are denominated in.
+        type: string
+      limitMinor:
+        description: LimitMinor is the budget's configured limit.
+        type: integer
+      name:
+        description: Name is the budget's display name.
+        type: string
+      percentUsed:
+        description: PercentUsed is the share of the limit consumed, which can exceed
+          100.
+        type: integer
+      period:
+        allOf:
+        - $ref: '#/definitions/domain.BudgetPeriod'
+        description: Period is the budget's configured window.
+      periodEnd:
+        description: PeriodEnd is the exclusive end of the budget's current window.
+        type: string
+      periodStart:
+        description: PeriodStart is the inclusive start of the budget's current window.
+        type: string
+      spentMinor:
+        description: SpentMinor is spend against the budget's category within the
+          window.
+        type: integer
+    type: object
   domain.BudgetRecord:
     properties:
       amountLimitMinor:
@@ -145,6 +181,82 @@ definitions:
       percentUsed:
         type: integer
       spentMinor:
+        type: integer
+    type: object
+  domain.BurnRate:
+    properties:
+      averagePerDayMinor:
+        description: AveragePerDayMinor is SpentMinor divided by DaysElapsed.
+        type: integer
+      currency:
+        description: Currency is the ISO 4217 code the amounts are denominated in.
+        type: string
+      daysElapsed:
+        description: DaysElapsed is the number of days of the bucket that have occurred
+          so far.
+        type: integer
+      daysTotal:
+        description: DaysTotal is the bucket's full length in days.
+        type: integer
+      expectedMinor:
+        description: |-
+          ExpectedMinor sums the limits of budgets whose period and currency match
+          this bucket; zero when no such budget is configured.
+        type: integer
+      period:
+        allOf:
+        - $ref: '#/definitions/domain.AnalyticsPeriod'
+        description: Period is the granularity the burn rate is computed over.
+      periodEnd:
+        description: PeriodEnd is the exclusive end of the current bucket.
+        type: string
+      periodStart:
+        description: PeriodStart is the inclusive start of the current bucket.
+        type: string
+      projectedTotalMinor:
+        description: ProjectedTotalMinor is AveragePerDayMinor extrapolated across
+          DaysTotal.
+        type: integer
+      spentMinor:
+        description: SpentMinor is spend so far in the current bucket, in minor units.
+        type: integer
+    type: object
+  domain.CategoryChange:
+    properties:
+      categoryID:
+        description: CategoryID identifies the compared category.
+        type: string
+      currency:
+        description: Currency is the ISO 4217 code the amounts are denominated in.
+        type: string
+      currentMinor:
+        description: CurrentMinor is the current bucket's total, in minor currency
+          units.
+        type: integer
+      expenseCount:
+        description: ExpenseCount is the number of expenses in the current bucket.
+        type: integer
+      percentChange:
+        description: PercentChange is nil when PreviousMinor is zero.
+        type: number
+      previousMinor:
+        description: PreviousMinor is the previous bucket's total, in minor currency
+          units.
+        type: integer
+    type: object
+  domain.DailyTotal:
+    properties:
+      amountMinor:
+        description: AmountMinor is the day's total, in minor currency units.
+        type: integer
+      currency:
+        description: Currency is the ISO 4217 code the amount is denominated in.
+        type: string
+      date:
+        description: Date is the day the total applies to.
+        type: string
+      expenseCount:
+        description: ExpenseCount is the number of expenses on that day.
         type: integer
     type: object
   domain.ExpenseCategory:
@@ -325,6 +437,44 @@ definitions:
     - PaymentQuarterly
     - PaymentYearly
     - PaymentCustom
+  domain.PeriodComparison:
+    properties:
+      currentStart:
+        description: CurrentStart is the inclusive start of the current bucket.
+        type: string
+      period:
+        allOf:
+        - $ref: '#/definitions/domain.AnalyticsPeriod'
+        description: Period is the granularity being compared.
+      previousStart:
+        description: PreviousStart is the inclusive start of the immediately preceding
+          bucket.
+        type: string
+      totals:
+        description: Totals holds one entry per currency observed in either bucket.
+        items:
+          $ref: '#/definitions/domain.PeriodComparisonTotal'
+        type: array
+    type: object
+  domain.PeriodComparisonTotal:
+    properties:
+      currency:
+        description: Currency is the ISO 4217 code the amounts are denominated in.
+        type: string
+      currentMinor:
+        description: CurrentMinor is the current bucket's total, in minor currency
+          units.
+        type: integer
+      percentChange:
+        description: |-
+          PercentChange is nil when PreviousMinor is zero, since there is nothing
+          to compare the current amount against.
+        type: number
+      previousMinor:
+        description: PreviousMinor is the previous bucket's total, in minor currency
+          units.
+        type: integer
+    type: object
   domain.Report:
     properties:
       createdAt:
@@ -469,6 +619,24 @@ definitions:
     - RoleMember
     - RoleAdmin
     - RoleSuperAdmin
+  domain.WeekdayTotal:
+    properties:
+      amountMinor:
+        description: AmountMinor is the weekday's total, in minor currency units.
+        type: integer
+      currency:
+        description: Currency is the ISO 4217 code the amount is denominated in.
+        type: string
+      expenseCount:
+        description: ExpenseCount is the number of expenses on that weekday.
+        type: integer
+      weekday:
+        description: |-
+          Weekday identifies the day of the week the total applies to, using Go's
+          time.Weekday encoding (0=Sunday..6=Saturday). Plain int rather than
+          time.Weekday itself so the OpenAPI generator can describe the field.
+        type: integer
+    type: object
   handler.acceptInvitationRequest:
     properties:
       display_name:
@@ -757,6 +925,148 @@ paths:
       summary: Get super-admin usage summary
       tags:
       - administration
+  /billpiggy/api/v1/analytics/budget-progress:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/domain.BudgetProgress'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      summary: Get every budget's spend against its limit for its current period
+      tags:
+      - analytics
+  /billpiggy/api/v1/analytics/burn-rate:
+    get:
+      parameters:
+      - description: day, week, month, or year
+        in: query
+        name: period
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/domain.BurnRate'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      summary: Get spend-so-far, projected total, and budget target for the current
+        period
+      tags:
+      - analytics
+  /billpiggy/api/v1/analytics/category-changes:
+    get:
+      parameters:
+      - description: day, week, month, or year
+        in: query
+        name: period
+        required: true
+        type: string
+      - description: Max categories to return (default 10, max 50)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/domain.CategoryChange'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      summary: Rank categories by spend change against the previous period
+      tags:
+      - analytics
+  /billpiggy/api/v1/analytics/comparison:
+    get:
+      parameters:
+      - description: day, week, month, or year
+        in: query
+        name: period
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/domain.PeriodComparison'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      summary: Compare the current period against the previous one
+      tags:
+      - analytics
+  /billpiggy/api/v1/analytics/daily-totals:
+    get:
+      parameters:
+      - description: RFC3339 inclusive start
+        in: query
+        name: from
+        required: true
+        type: string
+      - description: RFC3339 inclusive end
+        in: query
+        name: to
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/domain.DailyTotal'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      summary: Get one spend total per calendar day
+      tags:
+      - analytics
   /billpiggy/api/v1/analytics/expenses:
     get:
       parameters:
@@ -826,6 +1136,76 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: Get budget suggestions
+      tags:
+      - analytics
+  /billpiggy/api/v1/analytics/top-expenses:
+    get:
+      parameters:
+      - description: RFC3339 inclusive start
+        in: query
+        name: from
+        required: true
+        type: string
+      - description: RFC3339 inclusive end
+        in: query
+        name: to
+        required: true
+        type: string
+      - description: Max expenses to return (default 10, max 50)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/domain.ExpenseRecord'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      summary: Get the largest individual expenses in a range
+      tags:
+      - analytics
+  /billpiggy/api/v1/analytics/weekday-breakdown:
+    get:
+      parameters:
+      - description: RFC3339 inclusive start
+        in: query
+        name: from
+        required: true
+        type: string
+      - description: RFC3339 inclusive end
+        in: query
+        name: to
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/domain.WeekdayTotal'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      summary: Get one spend total per weekday
       tags:
       - analytics
   /billpiggy/api/v1/assistant/chat:

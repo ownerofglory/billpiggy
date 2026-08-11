@@ -114,8 +114,12 @@ func (r *ExpenseRepository) ListExpenses(ctx context.Context, filter outbound.Ex
 		args = append(args, tagIDs)
 		query += fmt.Sprintf(` and (select count(*) from expenses.expense_tags et where et.expense_id = e.id and et.tag_id = any($%d::uuid[])) = cardinality($%d::uuid[])`, len(args), len(args))
 	}
+	orderBy := "e.occurred_at desc, e.id"
+	if filter.SortBy == outbound.ExpenseSortAmount {
+		orderBy = "e.amount_minor desc, e.id"
+	}
 	args = append(args, filter.Limit, filter.Offset)
-	query += fmt.Sprintf(" order by e.occurred_at desc, e.id limit $%d offset $%d", len(args)-1, len(args))
+	query += fmt.Sprintf(" order by %s limit $%d offset $%d", orderBy, len(args)-1, len(args))
 
 	querier := pgxtx.From(ctx, r.pool)
 	rows, err := querier.Query(ctx, query, args...)

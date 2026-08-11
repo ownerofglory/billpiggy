@@ -34,9 +34,24 @@ type ExpenseListFilter struct {
 	// From and To optionally bound OccurredAt to the half-open window
 	// [From, To). Either may be zero to leave that bound open.
 	From, To time.Time
-	Limit    int
-	Offset   int
+	// SortBy selects the ordering applied before Limit/Offset. The zero value
+	// keeps the default: OccurredAt descending.
+	SortBy ExpenseSortField
+	Limit  int
+	Offset int
 }
+
+// ExpenseSortField selects how ListExpenses orders results before paging.
+type ExpenseSortField string
+
+const (
+	// ExpenseSortOccurredAt orders by OccurredAt descending. It is the zero
+	// value, so an unset filter keeps today's default behavior.
+	ExpenseSortOccurredAt ExpenseSortField = ""
+	// ExpenseSortAmount orders by AmountMinor descending, for "largest
+	// expenses" style views.
+	ExpenseSortAmount ExpenseSortField = "amount_minor"
+)
 
 // EventStore appends domain events. A production implementation appends an outbox
 // record in the same transaction; projections consume that outbox idempotently.

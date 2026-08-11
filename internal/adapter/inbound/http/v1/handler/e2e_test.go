@@ -74,7 +74,7 @@ func newE2EApp(t *testing.T, assistantAnswer string) *e2eApp {
 	if err != nil {
 		t.Fatalf("build budget service: %v", err)
 	}
-	analyticsService, err := service.NewAnalyticsService(analytics, budgets)
+	analyticsService, err := service.NewAnalyticsService(analytics, budgets, expenses)
 	if err != nil {
 		t.Fatalf("build analytics service: %v", err)
 	}
@@ -460,6 +460,76 @@ func TestE2EAnalyticsRollup(t *testing.T) {
 	}
 	if total != 1500 {
 		t.Fatalf("rollup total = %d, want 1500: %#v", total, rollups)
+	}
+}
+
+// TestE2EAnalyticsInsights covers the new comparison, top-expenses, and
+// budget-progress read models built on top of the same rollup projection
+// TestE2EAnalyticsRollup already exercises.
+func TestE2EAnalyticsInsights(t *testing.T) {
+	app := newE2EApp(t, "")
+	adminToken, _ := app.loginAsAdmin(t)
+
+	var categories []domain.ExpenseCategory
+	app.do(t, http.MethodGet, "/billpiggy/api/v1/taxonomy/categories", adminToken, nil, &categories)
+	categoryID := categories[0].ID
+	now := time.Now().UTC()
+
+	var budget domain.BudgetRecord
+	budgetResponse := app.do(t, http.MethodPost, "/billpiggy/api/v1/budgets/", adminToken, map[string]any{
+		"name": "Groceries budget", "category_id": categoryID, "amount_limit_minor": 5000, "currency": "EUR",
+		"threshold_percent": 80, "period": "monthly",
+	}, &budget)
+	if budgetResponse.Code != http.StatusCreated {
+		t.Fatalf("create budget status = %d, body = %s", budgetResponse.Code, budgetResponse.Body.String())
+	}
+
+	expenseResponse := app.do(t, http.MethodPost, "/billpiggy/api/v1/expenses/", adminToken, map[string]any{
+		"title": "Insights expense", "amount_minor": 1500, "currency": "EUR", "occurred_at": now.Format(time.RFC3339),
+		"category_id": categoryID, "status": "confirmed",
+	}, nil)
+	if expenseResponse.Code != http.StatusCreated {
+		t.Fatalf("create expense status = %d, body = %s", expenseResponse.Code, expenseResponse.Body.String())
+	}
+	app.drain(t)
+
+	var comparison domain.PeriodComparison
+	comparisonResponse := app.do(t, http.MethodGet, "/billpiggy/api/v1/analytics/comparison?period=month", adminToken, nil, &comparison)
+	if comparisonResponse.Code != http.StatusOK {
+		t.Fatalf("comparison status = %d, body = %s", comparisonResponse.Code, comparisonResponse.Body.String())
+	}
+	if len(comparison.Totals) != 1 || comparison.Totals[0].Currency != "EUR" || comparison.Totals[0].CurrentMinor != 1500 {
+		t.Fatalf("unexpected comparison: %#v", comparison)
+	}
+
+	from := now.AddDate(0, 0, -1).Format(time.RFC3339)
+	to := now.AddDate(0, 0, 1).Format(time.RFC3339)
+	var topExpenses []domain.ExpenseRecord
+	topResponse := app.do(t, http.MethodGet, "/billpiggy/api/v1/analytics/top-expenses?from="+from+"&to="+to+"&limit=5", adminToken, nil, &topExpenses)
+	if topResponse.Code != http.StatusOK {
+		t.Fatalf("top-expenses status = %d, body = %s", topResponse.Code, topResponse.Body.String())
+	}
+	if len(topExpenses) != 1 || topExpenses[0].AmountMinor != 1500 || topExpenses[0].Title != "Insights expense" {
+		t.Fatalf("unexpected top expenses: %#v", topExpenses)
+	}
+
+	var progress []domain.BudgetProgress
+	progressResponse := app.do(t, http.MethodGet, "/billpiggy/api/v1/analytics/budget-progress", adminToken, nil, &progress)
+	if progressResponse.Code != http.StatusOK {
+		t.Fatalf("budget-progress status = %d, body = %s", progressResponse.Code, progressResponse.Body.String())
+	}
+	found := false
+	for _, entry := range progress {
+		if entry.BudgetID != budget.ID {
+			continue
+		}
+		found = true
+		if entry.SpentMinor != 1500 || entry.LimitMinor != 5000 || entry.PercentUsed != 30 {
+			t.Fatalf("unexpected budget progress: %#v", entry)
+		}
+	}
+	if !found {
+		t.Fatalf("budget %s missing from budget-progress: %#v", budget.ID, progress)
 	}
 }
 

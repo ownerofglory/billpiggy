@@ -343,6 +343,39 @@ func TestExpenseRepositoryFiltersTagsBeforePaging(t *testing.T) {
 	}
 }
 
+func TestExpenseRepositorySortsByAmountWhenRequested(t *testing.T) {
+	pool := newPool(t)
+	repository := postgresadapter.NewExpenseRepository(pool)
+	owner := seedUser(t, pool, "amount-sort@example.test")
+	category := defaultCategoryID(t, pool, "Food")
+	base := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	amounts := []int64{300, 900, 100, 500}
+	for i, amount := range amounts {
+		expense := expenseRecord(owner, category, amount, base.AddDate(0, 0, i))
+		if err := repository.CreateExpense(context.Background(), expense); err != nil {
+			t.Fatalf("create expense %d: %v", i, err)
+		}
+	}
+
+	values, err := repository.ListExpenses(context.Background(), outbound.ExpenseListFilter{
+		OwnerID: owner, SortBy: outbound.ExpenseSortAmount, Limit: 10,
+	})
+	if err != nil {
+		t.Fatalf("list expenses: %v", err)
+	}
+	if len(values) != len(amounts) {
+		t.Fatalf("got %d expenses, want %d", len(values), len(amounts))
+	}
+	for i := 1; i < len(values); i++ {
+		if values[i-1].AmountMinor < values[i].AmountMinor {
+			t.Fatalf("expenses not sorted descending by amount: %#v", values)
+		}
+	}
+	if values[0].AmountMinor != 900 || values[len(values)-1].AmountMinor != 100 {
+		t.Fatalf("unexpected sort order: got amounts %d..%d", values[0].AmountMinor, values[len(values)-1].AmountMinor)
+	}
+}
+
 func TestEventStoreCommitsWithTheCallersUnitOfWork(t *testing.T) {
 	pool := newPool(t)
 	runner := pgxtx.NewRunner(pool)

@@ -177,7 +177,7 @@ func main() {
 		slog.Error("configure budgets", "error", err)
 		os.Exit(1)
 	}
-	analyticsService, err := service.NewAnalyticsService(adapters.analytics, adapters.budgets)
+	analyticsService, err := service.NewAnalyticsService(adapters.analytics, adapters.budgets, adapters.expenses)
 	if err != nil {
 		slog.Error("configure analytics", "error", err)
 		os.Exit(1)

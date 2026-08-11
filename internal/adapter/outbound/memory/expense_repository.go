@@ -75,7 +75,11 @@ func (r *ExpenseRepository) ListExpenses(_ context.Context, filter outbound.Expe
 		}
 		expenses = append(expenses, cloneExpense(expense))
 	}
-	sort.Slice(expenses, func(i, j int) bool { return expenses[i].OccurredAt.After(expenses[j].OccurredAt) })
+	if filter.SortBy == outbound.ExpenseSortAmount {
+		sort.Slice(expenses, func(i, j int) bool { return expenses[i].AmountMinor > expenses[j].AmountMinor })
+	} else {
+		sort.Slice(expenses, func(i, j int) bool { return expenses[i].OccurredAt.After(expenses[j].OccurredAt) })
+	}
 	start := min(filter.Offset, len(expenses))
 	end := min(start+filter.Limit, len(expenses))
 	return expenses[start:end], nil
