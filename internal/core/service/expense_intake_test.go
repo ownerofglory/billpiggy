@@ -10,8 +10,10 @@ import (
 	"image/png"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ownerofglory/billpiggy/internal/adapter/outbound/memory"
+	"github.com/ownerofglory/billpiggy/internal/core/domain"
 	"github.com/ownerofglory/billpiggy/internal/core/service"
 )
 
@@ -80,6 +82,68 @@ func TestExtractFromReceiptReturnsTheParsedDraft(t *testing.T) {
 	}
 	if requests[0].UserID != "owner-1" {
 		t.Fatalf("UserID = %q, want owner-1 for audit purposes", requests[0].UserID)
+	}
+}
+
+// TestExtractionInstructionsCarryTodaysDateNotAModelGuess is a regression
+// test for a real production bug: the extraction instructions used to just
+// say "use the current date" with no actual date, and the model — which has
+// no clock, only a training cutoff — answered every date-less extraction
+// with October 2023 regardless of the real date. The fix spells the date out
+// explicitly so there is nothing left for the model to guess.
+func TestExtractionInstructionsCarryTodaysDateNotAModelGuess(t *testing.T) {
+	t.Parallel()
+	fixedNow := time.Date(2026, 8, 11, 15, 4, 5, 0, time.UTC)
+	provider := memory.NewAIProvider(draftJSON(t, "Cinema", 25_00))
+	intake, err := service.NewExpenseIntakeService(provider, nil)
+	if err != nil {
+		t.Fatalf("build intake service: %v", err)
+	}
+	intake.WithClock(func() time.Time { return fixedNow })
+
+	if _, err := intake.ExtractFromSentence(context.Background(), "owner-1", "cinema tickets, 25 euro"); err != nil {
+		t.Fatalf("ExtractFromSentence: %v", err)
+	}
+
+	requests := provider.Requests()
+	if len(requests) != 1 {
+		t.Fatalf("provider saw %d requests, want 1", len(requests))
+	}
+	var systemText string
+	for _, message := range requests[0].Messages {
+		if message.Role == domain.RoleSystem && message.Text != nil {
+			systemText = *message.Text
+		}
+	}
+	if !strings.Contains(systemText, "2026-08-11") {
+		t.Fatalf("system instructions = %q, want the injected date 2026-08-11", systemText)
+	}
+	if strings.Contains(systemText, "2023") {
+		t.Fatalf("system instructions = %q, must not mention a stale hardcoded year", systemText)
+	}
+}
+
+func TestExtractedExpenseDecodesTheMerchantAddress(t *testing.T) {
+	t.Parallel()
+	encoded, err := json.Marshal(map[string]any{
+		"title": "Groceries", "amount_minor": 4200, "currency": "EUR",
+		"occurred_at": "2026-03-10T12:00:00Z", "category_name": "Food",
+		"address": "12 Market Street, Springfield",
+	})
+	if err != nil {
+		t.Fatalf("marshal draft fixture: %v", err)
+	}
+	provider := memory.NewAIProvider(string(encoded))
+	intake, err := service.NewExpenseIntakeService(provider, nil)
+	if err != nil {
+		t.Fatalf("build intake service: %v", err)
+	}
+	draft, err := intake.ExtractFromReceipt(context.Background(), "owner-1", receiptFixture(t))
+	if err != nil {
+		t.Fatalf("ExtractFromReceipt: %v", err)
+	}
+	if draft.Address != "12 Market Street, Springfield" {
+		t.Fatalf("Address = %q, want the extracted address", draft.Address)
 	}
 }
 

@@ -31,4 +31,6 @@ type ExtractedExpense struct {
 	// when only one thing was mentioned; strict structured-output schemas
 	// require every property to be present, so this can't be omitempty.
 	Items []ExtractedExpenseItem `json:"items" jsonschema_description:"Individual line items if more than one was mentioned"`
+	// Address is the merchant's address as printed on the receipt, if any.
+	Address string `json:"address" jsonschema_description:"The merchant's street address exactly as printed on the receipt, empty if not shown"`
 }

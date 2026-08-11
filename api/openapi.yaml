@@ -276,6 +276,10 @@ definitions:
     type: object
   domain.ExtractedExpense:
     properties:
+      address:
+        description: Address is the merchant's address as printed on the receipt,
+          if any.
+        type: string
       amount_minor:
         description: AmountMinor is the total amount in minor currency units.
         type: integer
@@ -286,7 +290,10 @@ definitions:
         description: Currency is the ISO 4217 currency code.
         type: string
       items:
-        description: Items breaks the total down when more than one thing was mentioned.
+        description: |-
+          Items breaks the total down when more than one thing was mentioned. Empty
+          when only one thing was mentioned; strict structured-output schemas
+          require every property to be present, so this can't be omitempty.
         items:
           $ref: '#/definitions/domain.ExtractedExpenseItem'
         type: array
