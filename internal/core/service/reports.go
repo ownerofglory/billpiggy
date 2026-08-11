@@ -119,13 +119,13 @@ func (s *ReportService) GenerateDue(ctx context.Context, now time.Time) (int, er
 // creates at least one of them.
 func (s *ReportService) generatePeriod(ctx context.Context, user domain.AppUser, kind domain.AnalyticsPeriod, start time.Time, done map[periodKey]bool, now time.Time) (int, error) {
 	end := domain.ReportPeriodEnd(kind, start)
-	rows, totals, err := s.collect(ctx, user.ID, start, end)
+	rows, totals, categoryColors, err := s.collect(ctx, user.ID, start, end)
 	if err != nil {
 		return 0, fmt.Errorf("collect expenses: %w", err)
 	}
 	data := report.Data{
 		PeriodKind: string(kind), PeriodStart: start, PeriodEnd: end, GeneratedAt: now,
-		OwnerName: user.DisplayName, Rows: rows, Totals: totals,
+		OwnerName: user.DisplayName, Rows: rows, Totals: totals, CategoryColors: categoryColors,
 	}
 	createdAny := false
 	for _, format := range []domain.ReportFormat{domain.ReportFormatCSV, domain.ReportFormatPDF} {
@@ -162,15 +162,26 @@ func (s *ReportService) generatePeriod(ctx context.Context, user domain.AppUser,
 }
 
 // collect gathers every expense in [start, end) and the per-category totals
-// they imply, resolving tag ids to their display names.
-func (s *ReportService) collect(ctx context.Context, ownerID string, start, end time.Time) ([]report.ExpenseRow, []report.CategoryTotal, error) {
+// they imply, resolving tag ids to their display names and category names to
+// the same hex colors the app itself shows for them.
+func (s *ReportService) collect(ctx context.Context, ownerID string, start, end time.Time) ([]report.ExpenseRow, []report.CategoryTotal, map[string]string, error) {
 	tags, err := s.taxonomy.ListTags(ctx, ownerID)
 	if err != nil {
-		return nil, nil, fmt.Errorf("list tags: %w", err)
+		return nil, nil, nil, fmt.Errorf("list tags: %w", err)
 	}
 	tagNames := make(map[string]string, len(tags))
 	for _, tag := range tags {
 		tagNames[tag.ID] = tag.Name
+	}
+	categories, err := s.taxonomy.ListCategories(ctx, ownerID)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("list categories: %w", err)
+	}
+	categoryColors := make(map[string]string, len(categories))
+	for _, category := range categories {
+		if category.Color != "" {
+			categoryColors[category.Name] = category.Color
+		}
 	}
 
 	rows := make([]report.ExpenseRow, 0)
@@ -180,7 +191,7 @@ func (s *ReportService) collect(ctx context.Context, ownerID string, start, end 
 	for {
 		expenses, err := s.expenses.ListExpenses(ctx, outbound.ExpenseListFilter{OwnerID: ownerID, From: start, To: end, Limit: reportPageSize, Offset: offset})
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		for _, expense := range expenses {
 			category := expense.CategoryName
@@ -215,7 +226,7 @@ func (s *ReportService) collect(ctx context.Context, ownerID string, start, end 
 	for _, total := range totals {
 		values = append(values, *total)
 	}
-	return rows, values, nil
+	return rows, values, categoryColors, nil
 }
 
 // queueReady enqueues the report-ready notification, writing through the
