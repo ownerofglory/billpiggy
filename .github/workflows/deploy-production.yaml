@@ -53,10 +53,9 @@ jobs:
           BOOTSTRAP_SUPER_ADMIN_EMAIL: ${{ secrets.BOOTSTRAP_SUPER_ADMIN_EMAIL }}
           BOOTSTRAP_SUPER_ADMIN_PASSWORD: ${{ secrets.BOOTSTRAP_SUPER_ADMIN_PASSWORD }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          SMTP_ADDRESS: ${{ secrets.SMTP_ADDRESS }}
-          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
-          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
-          SMTP_FROM: ${{ secrets.SMTP_FROM }}
+          MAILERSEND_API_KEY: ${{ secrets.MAILERSEND_API_KEY }}
+          MAILERSEND_FROM_EMAIL: ${{ secrets.MAILERSEND_FROM_EMAIL }}
+          MAILERSEND_FROM_NAME: ${{ secrets.MAILERSEND_FROM_NAME }}
           MINIO_ENDPOINT: ${{ secrets.MINIO_ENDPOINT }}
           MINIO_ACCESS_KEY: ${{ secrets.MINIO_ACCESS_KEY }}
           MINIO_SECRET_KEY: ${{ secrets.MINIO_SECRET_KEY }}
@@ -71,10 +70,9 @@ jobs:
             --from-literal=BOOTSTRAP_SUPER_ADMIN_EMAIL="$BOOTSTRAP_SUPER_ADMIN_EMAIL" \
             --from-literal=BOOTSTRAP_SUPER_ADMIN_PASSWORD="$BOOTSTRAP_SUPER_ADMIN_PASSWORD" \
             --from-literal=OPENAI_API_KEY="$OPENAI_API_KEY" \
-            --from-literal=SMTP_ADDRESS="$SMTP_ADDRESS" \
-            --from-literal=SMTP_USERNAME="$SMTP_USERNAME" \
-            --from-literal=SMTP_PASSWORD="$SMTP_PASSWORD" \
-            --from-literal=SMTP_FROM="$SMTP_FROM" \
+            --from-literal=MAILERSEND_API_KEY="$MAILERSEND_API_KEY" \
+            --from-literal=MAILERSEND_FROM_EMAIL="$MAILERSEND_FROM_EMAIL" \
+            --from-literal=MAILERSEND_FROM_NAME="$MAILERSEND_FROM_NAME" \
             --from-literal=MINIO_ENDPOINT="$MINIO_ENDPOINT" \
             --from-literal=MINIO_ACCESS_KEY="$MINIO_ACCESS_KEY" \
             --from-literal=MINIO_SECRET_KEY="$MINIO_SECRET_KEY" \

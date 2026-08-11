@@ -9,6 +9,7 @@ import (
 	"github.com/ownerofglory/billpiggy/internal/adapter/outbound/memory"
 	"github.com/ownerofglory/billpiggy/internal/core/domain"
 	"github.com/ownerofglory/billpiggy/internal/core/service"
+	"github.com/ownerofglory/billpiggy/pkg/email"
 )
 
 // recordingSender is a fake EmailSender whose behaviour is scripted per call.
@@ -217,5 +218,74 @@ func TestDeliverPendingReclaimsExpiredLease(t *testing.T) {
 	}
 	if claimed[0].Attempts != 2 {
 		t.Fatalf("attempts = %d, want 2 (original claim + reclaim)", claimed[0].Attempts)
+	}
+}
+
+// quotaExceededSender simulates a provider whose shared send quota (e.g.
+// MailerSend's free-tier monthly cap) has already been exhausted: every send
+// fails the same way, regardless of recipient.
+type quotaExceededSender struct{ sends []string }
+
+func (s *quotaExceededSender) Send(_ context.Context, to, _, _, _ string) error {
+	s.sends = append(s.sends, to)
+	return email.ErrSendLimitExceeded
+}
+
+func TestDeliverPendingBacksOffWithoutDeadLetteringWhenTheSendQuotaIsExhausted(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	notifications, repository, identity := newNotificationHarness(t)
+	if err := identity.CreateUser(ctx, domain.AppUser{ID: "user-1", Email: "user@example.com", EmailNotificationsEnabled: true, CreatedAt: time.Now(), UpdatedAt: time.Now()}); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	if err := notifications.Queue(ctx, "user-1", domain.NotificationReportReady, map[string]string{"period_kind": "week", "period_start": "2026-07-27T00:00:00Z"}); err != nil {
+		t.Fatalf("queue: %v", err)
+	}
+
+	sender := &quotaExceededSender{}
+	for i := 0; i < 10; i++ {
+		if err := notifications.DeliverPending(ctx, identity, sender, "worker-1", 10); err != nil {
+			t.Fatalf("deliver pending (tick %d): %v", i, err)
+		}
+	}
+	delivery := repository.Deliveries()[0]
+	if delivery.Status != domain.NotificationPending {
+		t.Fatalf("status = %s, want still pending: quota exhaustion is not this delivery's own fault and must never dead-letter it", delivery.Status)
+	}
+	// Backing off on a long, fixed cadence — rather than the short
+	// exponential schedule — is what keeps repeated quota-exceeded ticks
+	// from silently burning through the attempt cap.
+	if len(sender.sends) != 1 {
+		t.Fatalf("provider saw %d send attempts, want exactly 1: the long quota backoff must suppress the other 9 ticks", len(sender.sends))
+	}
+}
+
+func TestDeliverPendingLeavesTheRestOfTheBatchPendingOnceTheQuotaTrips(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	notifications, repository, identity := newNotificationHarness(t)
+	if err := identity.CreateUser(ctx, domain.AppUser{ID: "user-1", Email: "user@example.com", EmailNotificationsEnabled: true, CreatedAt: time.Now(), UpdatedAt: time.Now()}); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	for i := 0; i < 3; i++ {
+		if err := notifications.Queue(ctx, "user-1", domain.NotificationBudgetAlert, map[string]string{}); err != nil {
+			t.Fatalf("queue %d: %v", i, err)
+		}
+	}
+
+	sender := &quotaExceededSender{}
+	if err := notifications.DeliverPending(ctx, identity, sender, "worker-1", 10); err != nil {
+		t.Fatalf("deliver pending: %v", err)
+	}
+	// Only the first delivery should have reached the sender at all: the
+	// rest of the batch is resolved without another round trip once the
+	// quota is known to be exhausted.
+	if len(sender.sends) != 1 {
+		t.Fatalf("provider saw %d send attempts, want exactly 1", len(sender.sends))
+	}
+	for _, delivery := range repository.Deliveries() {
+		if delivery.Status != domain.NotificationPending {
+			t.Fatalf("delivery %s status = %s, want pending (none dead-lettered or left dangling in processing)", delivery.ID, delivery.Status)
+		}
 	}
 }

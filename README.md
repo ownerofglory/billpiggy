@@ -51,7 +51,8 @@ projection pipeline for cross-context propagation.
   generated reports)
 - **AI:** OpenAI-compatible chat completions via the official
   [`openai-go`](https://github.com/openai/openai-go) client, configurable base URL
-- **Email:** SMTP, rendered from Go templates
+- **Email:** [MailerSend](https://www.mailersend.com/) transactional API, rendered from Go
+  templates, with a locally-enforced monthly send cap matching the provider's quota
 - **Deployment:** Docker image, Helm chart, Terraform for the initial cluster
   infrastructure — see [docs/production-deployment.md](docs/production-deployment.md)
 - **API docs:** OpenAPI 2.0, generated from handler annotations into
