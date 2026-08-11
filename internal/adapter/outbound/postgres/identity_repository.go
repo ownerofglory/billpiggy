@@ -129,9 +129,10 @@ func (r *IdentityRepository) DeleteUser(ctx context.Context, userID string) erro
 func (r *IdentityRepository) GetInvitationByTokenHash(ctx context.Context, tokenHash string) (domain.Invitation, error) {
 	var invitation domain.Invitation
 	var role, status string
+	var hash []byte
 	var acceptedAt *time.Time
-	err := pgxtx.From(ctx, r.pool).QueryRow(ctx, `select id::text, email, role::text, token_hash, status::text, invited_by::text, expires_at, created_at, coalesce(accepted_by::text, ''), accepted_at from identity.invitations where token_hash = $1`, hashBytes(tokenHash)).Scan(&invitation.ID, &invitation.Email, &role, &invitation.TokenHash, &status, &invitation.InvitedBy, &invitation.ExpiresAt, &invitation.CreatedAt, &invitation.AcceptedBy, &acceptedAt)
-	invitation.Role, invitation.Status, invitation.AcceptedAt = domain.UserRole(role), domain.InvitationStatus(status), acceptedAt
+	err := pgxtx.From(ctx, r.pool).QueryRow(ctx, `select id::text, email, role::text, token_hash, status::text, invited_by::text, expires_at, created_at, coalesce(accepted_by::text, ''), accepted_at from identity.invitations where token_hash = $1`, hashBytes(tokenHash)).Scan(&invitation.ID, &invitation.Email, &role, &hash, &status, &invitation.InvitedBy, &invitation.ExpiresAt, &invitation.CreatedAt, &invitation.AcceptedBy, &acceptedAt)
+	invitation.TokenHash, invitation.Role, invitation.Status, invitation.AcceptedAt = hex.EncodeToString(hash), domain.UserRole(role), domain.InvitationStatus(status), acceptedAt
 	return invitation, err
 }
 
