@@ -4,12 +4,26 @@ package email
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"mime/multipart"
+	"net"
 	"net/smtp"
 	"net/textproto"
 	"strings"
+	"time"
 )
+
+// sendTimeout bounds one entire SMTP conversation, from connect through
+// quit. net/smtp.SendMail has no timeout or context support of its own: an
+// unreachable or non-responding host otherwise blocks the caller
+// indefinitely, which for the notification worker means its "last
+// successful pass" marker freezes and /readyz eventually fails with no way
+// to recover on its own, since nothing ever unblocks the stuck goroutine.
+//
+// A var, not a const, so a test can shorten it rather than waiting out the
+// real production timeout to prove a non-responding server doesn't hang.
+var sendTimeout = 15 * time.Second
 
 // SMTPSender sends multipart/alternative messages using a configured SMTP relay.
 type SMTPSender struct{ address, username, password, from string }
@@ -23,7 +37,9 @@ func NewSMTPSender(address, username, password, from string) (*SMTPSender, error
 }
 
 // Send delivers a message carrying both a plain-text and an HTML part,
-// unless the context has been cancelled.
+// unless the context has been cancelled. The whole conversation is bounded
+// by sendTimeout regardless of ctx, since the underlying net/smtp dial and
+// protocol exchange do not honor context cancellation themselves.
 func (s *SMTPSender) Send(ctx context.Context, to, subject, text, html string) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -40,7 +56,61 @@ func (s *SMTPSender) Send(ctx context.Context, to, subject, text, html string) e
 	if err != nil {
 		return fmt.Errorf("build message: %w", err)
 	}
-	return smtp.SendMail(s.address, auth, s.from, []string{to}, message)
+	return sendWithDeadline(s.address, host, auth, s.from, to, message)
+}
+
+// sendWithDeadline mirrors the steps net/smtp.SendMail performs internally
+// (hello, optional STARTTLS, optional auth, mail/rcpt/data/quit), but dials
+// with a timeout and puts a single deadline on the connection covering the
+// whole exchange, which SendMail itself offers no way to do.
+func sendWithDeadline(addr, host string, auth smtp.Auth, from, to string, message []byte) error {
+	conn, err := net.DialTimeout("tcp", addr, sendTimeout)
+	if err != nil {
+		return fmt.Errorf("dial smtp: %w", err)
+	}
+	if err := conn.SetDeadline(time.Now().Add(sendTimeout)); err != nil {
+		conn.Close()
+		return fmt.Errorf("set smtp deadline: %w", err)
+	}
+	client, err := smtp.NewClient(conn, host)
+	if err != nil {
+		conn.Close()
+		return fmt.Errorf("smtp handshake: %w", err)
+	}
+	defer client.Close()
+	if err := client.Hello("localhost"); err != nil {
+		return fmt.Errorf("smtp hello: %w", err)
+	}
+	if ok, _ := client.Extension("STARTTLS"); ok {
+		if err := client.StartTLS(&tls.Config{ServerName: host}); err != nil {
+			return fmt.Errorf("smtp starttls: %w", err)
+		}
+	}
+	if auth != nil {
+		if ok, _ := client.Extension("AUTH"); !ok {
+			return fmt.Errorf("smtp: server doesn't support AUTH")
+		}
+		if err := client.Auth(auth); err != nil {
+			return fmt.Errorf("smtp auth: %w", err)
+		}
+	}
+	if err := client.Mail(from); err != nil {
+		return fmt.Errorf("smtp mail: %w", err)
+	}
+	if err := client.Rcpt(to); err != nil {
+		return fmt.Errorf("smtp rcpt: %w", err)
+	}
+	writer, err := client.Data()
+	if err != nil {
+		return fmt.Errorf("smtp data: %w", err)
+	}
+	if _, err := writer.Write(message); err != nil {
+		return fmt.Errorf("smtp write: %w", err)
+	}
+	if err := writer.Close(); err != nil {
+		return fmt.Errorf("smtp close data: %w", err)
+	}
+	return client.Quit()
 }
 
 // buildMessage renders a multipart/alternative RFC 5322 message with a
