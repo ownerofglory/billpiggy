@@ -28,6 +28,7 @@ type auditHandler struct{ service inbound.AuditService }
 //
 //	@Summary	List audit entries
 //	@Tags		administration
+//	@Security	ApiKeyAuth
 //	@Produce	json
 //	@Param		actor_id		query		string	false	"Actor user ID"
 //	@Param		resource_type	query		string	false	"Aggregate type, e.g. expense, budget, user"

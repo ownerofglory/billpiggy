@@ -64,6 +64,7 @@ func (h expenseHandler) command(request expenseRequest) service.CreateExpenseCom
 //
 //	@Summary	List expenses
 //	@Tags		expenses
+//	@Security	ApiKeyAuth
 //	@Produce	json
 //	@Param		q			query	string		false	"Search title or category"
 //	@Param		category_id	query	string		false	"Category ID"
@@ -86,6 +87,7 @@ func (h expenseHandler) list(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	Get expense
 //	@Tags		expenses
+//	@Security	ApiKeyAuth
 //	@Produce	json
 //	@Param		expenseID	path		string	true	"Expense ID"
 //	@Success	200			{object}	domain.ExpenseRecord
@@ -104,6 +106,7 @@ func (h expenseHandler) get(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	Create expense
 //	@Tags		expenses
+//	@Security	ApiKeyAuth
 //	@Accept		json
 //	@Produce	json
 //	@Param		request	body		expenseRequest	true	"Expense"
@@ -126,6 +129,7 @@ func (h expenseHandler) create(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	Update expense
 //	@Tags		expenses
+//	@Security	ApiKeyAuth
 //	@Accept		json
 //	@Produce	json
 //	@Param		expenseID	path		string			true	"Expense ID"
@@ -149,6 +153,7 @@ func (h expenseHandler) update(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	Delete expense
 //	@Tags		expenses
+//	@Security	ApiKeyAuth
 //	@Param		expenseID	path	string	true	"Expense ID"
 //	@Success	204
 //	@Router		/billpiggy/api/v1/expenses/{expenseID} [delete]

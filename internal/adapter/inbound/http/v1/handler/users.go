@@ -54,6 +54,7 @@ func userPublic(value domain.AppUser) userResponseBody {
 //
 //	@Summary	Get profile
 //	@Tags		users
+//	@Security	ApiKeyAuth
 //	@Produce	json
 //	@Success	200	{object}	userResponseBody
 //	@Router		/billpiggy/api/v1/users/me/profile [get]
@@ -70,6 +71,7 @@ func (h userHandler) profile(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	Update profile
 //	@Tags		users
+//	@Security	ApiKeyAuth
 //	@Accept		json
 //	@Produce	json
 //	@Param		request	body		profileRequest	true	"Profile"
@@ -94,6 +96,7 @@ func (h userHandler) updateProfile(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	Update notification preferences
 //	@Tags		users
+//	@Security	ApiKeyAuth
 //	@Accept		json
 //	@Produce	json
 //	@Param		request	body		map[string]bool	true	"Per-kind overrides, keyed by notification kind (invitation, budget_alert, report_ready, access_changed)"
@@ -123,6 +126,7 @@ type changePasswordRequest struct {
 //
 //	@Summary	Change password
 //	@Tags		users
+//	@Security	ApiKeyAuth
 //	@Accept		json
 //	@Param		request	body	changePasswordRequest	true	"Passwords"
 //	@Success	204
@@ -150,6 +154,7 @@ func (h userHandler) changePassword(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	List users
 //	@Tags		administration
+//	@Security	ApiKeyAuth
 //	@Produce	json
 //	@Success	200	{array}	userResponseBody
 //	@Router		/billpiggy/api/v1/users/ [get]
@@ -170,6 +175,7 @@ func (h userHandler) list(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	Manage user
 //	@Tags		administration
+//	@Security	ApiKeyAuth
 //	@Accept		json
 //	@Produce	json
 //	@Param		userID	path		string				true	"User ID"
@@ -198,6 +204,7 @@ func (h userHandler) manage(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	Delete user
 //	@Tags		administration
+//	@Security	ApiKeyAuth
 //	@Param		userID	path	string	true	"User ID"
 //	@Success	204
 //	@Failure	403	{object}	map[string]string

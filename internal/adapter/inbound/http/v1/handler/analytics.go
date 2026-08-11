@@ -26,6 +26,7 @@ func RegisterAnalyticsRoutes(router chi.Router, analytics inbound.AnalyticsServi
 //
 //	@Summary	Get budget suggestions
 //	@Tags		analytics
+//	@Security	ApiKeyAuth
 //	@Produce	json
 //	@Success	200	{array}		domain.BudgetSuggestion
 //	@Failure	401	{object}	map[string]string
@@ -46,6 +47,7 @@ type analyticsHandler struct{ service inbound.AnalyticsService }
 //
 //	@Summary	Get expense analytics
 //	@Tags		analytics
+//	@Security	ApiKeyAuth
 //	@Produce	json
 //	@Param		period		query		string		true	"day, week, month, or year"
 //	@Param		from		query		string		true	"RFC3339 inclusive start"

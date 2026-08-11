@@ -34,6 +34,7 @@ type assistantRequest struct {
 //
 //	@Summary	Stream an assistant response
 //	@Tags		assistant
+//	@Security	ApiKeyAuth
 //	@Accept		json
 //	@Produce	text/event-stream
 //	@Param		request	body		assistantRequest	true	"Assistant message"

@@ -61,6 +61,7 @@ func (h intakeHandler) owner(r *http.Request) string {
 //
 //	@Summary	Scan a receipt into a draft expense
 //	@Tags		expenses
+//	@Security	ApiKeyAuth
 //	@Accept		multipart/form-data
 //	@Produce	json
 //	@Param		file	formData	file	true	"Receipt image, maximum 10 MiB"
@@ -89,6 +90,7 @@ func (h intakeHandler) scan(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	Parse a sentence into a draft expense
 //	@Tags		expenses
+//	@Security	ApiKeyAuth
 //	@Accept		json
 //	@Produce	json
 //	@Param		request	body		intelligentRequest	true	"Description"
@@ -117,6 +119,7 @@ func (h intakeHandler) intelligent(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	Dictate a draft expense
 //	@Tags		expenses
+//	@Security	ApiKeyAuth
 //	@Accept		multipart/form-data
 //	@Produce	json
 //	@Param		file	formData	file	true	"Audio recording, maximum 10 MiB"

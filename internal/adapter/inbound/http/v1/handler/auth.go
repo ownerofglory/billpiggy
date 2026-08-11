@@ -130,6 +130,7 @@ func (h authHandler) acceptInvitation(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	Invite user
 //	@Tags		auth, administration
+//	@Security	ApiKeyAuth
 //	@Accept		json
 //	@Param		request	body	invitationRequest	true	"Invitation"
 //	@Success	202
@@ -212,6 +213,7 @@ func (h authHandler) confirmPasswordReset(w http.ResponseWriter, r *http.Request
 //
 //	@Summary	Get current user
 //	@Tags		auth
+//	@Security	ApiKeyAuth
 //	@Produce	json
 //	@Success	200	{object}	currentUserResponse
 //	@Failure	401	{object}	map[string]string

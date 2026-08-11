@@ -75,6 +75,7 @@ func (h scheduledPaymentHandler) payment(request scheduledPaymentRequest) domain
 //
 //	@Summary	List scheduled payments
 //	@Tags		scheduled-payments
+//	@Security	ApiKeyAuth
 //	@Produce	json
 //	@Success	200	{array}		domain.ScheduledPayment
 //	@Failure	401	{object}	map[string]string
@@ -92,6 +93,7 @@ func (h scheduledPaymentHandler) list(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	Get scheduled payment
 //	@Tags		scheduled-payments
+//	@Security	ApiKeyAuth
 //	@Produce	json
 //	@Param		paymentID	path		string	true	"Scheduled payment ID"
 //	@Success	200			{object}	domain.ScheduledPayment
@@ -110,6 +112,7 @@ func (h scheduledPaymentHandler) get(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	Create scheduled payment
 //	@Tags		scheduled-payments
+//	@Security	ApiKeyAuth
 //	@Accept		json
 //	@Produce	json
 //	@Param		request	body		scheduledPaymentRequest	true	"Scheduled payment"
@@ -138,6 +141,7 @@ func (h scheduledPaymentHandler) create(w http.ResponseWriter, r *http.Request) 
 //
 //	@Summary	Update scheduled payment
 //	@Tags		scheduled-payments
+//	@Security	ApiKeyAuth
 //	@Accept		json
 //	@Produce	json
 //	@Param		paymentID	path		string					true	"Scheduled payment ID"
@@ -173,6 +177,7 @@ func (h scheduledPaymentHandler) update(w http.ResponseWriter, r *http.Request) 
 //
 //	@Summary	Delete scheduled payment
 //	@Tags		scheduled-payments
+//	@Security	ApiKeyAuth
 //	@Param		paymentID	path	string	true	"Scheduled payment ID"
 //	@Success	204
 //	@Failure	404	{object}	map[string]string

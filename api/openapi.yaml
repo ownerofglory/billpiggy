@@ -752,6 +752,8 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - ApiKeyAuth: []
       summary: Get super-admin usage summary
       tags:
       - administration
@@ -799,6 +801,8 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - ApiKeyAuth: []
       summary: Get expense analytics
       tags:
       - analytics
@@ -819,6 +823,8 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - ApiKeyAuth: []
       summary: Get budget suggestions
       tags:
       - analytics
@@ -847,6 +853,8 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - ApiKeyAuth: []
       summary: Stream an assistant response
       tags:
       - assistant
@@ -906,6 +914,8 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - ApiKeyAuth: []
       summary: List audit entries
       tags:
       - administration
@@ -935,6 +945,8 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - ApiKeyAuth: []
       summary: Invite user
       tags:
       - auth
@@ -1016,6 +1028,8 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - ApiKeyAuth: []
       summary: Get current user
       tags:
       - auth
@@ -1100,6 +1114,8 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - ApiKeyAuth: []
       summary: List budgets
       tags:
       - budgets
@@ -1126,6 +1142,8 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - ApiKeyAuth: []
       summary: Create budget
       tags:
       - budgets
@@ -1146,6 +1164,8 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - ApiKeyAuth: []
       summary: Delete budget
       tags:
       - budgets
@@ -1169,6 +1189,8 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - ApiKeyAuth: []
       summary: Get budget
       tags:
       - budgets
@@ -1206,6 +1228,8 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - ApiKeyAuth: []
       summary: Update budget
       tags:
       - budgets
@@ -1236,6 +1260,8 @@ paths:
             items:
               $ref: '#/definitions/domain.ExpenseRecord'
             type: array
+      security:
+      - ApiKeyAuth: []
       summary: List expenses
       tags:
       - expenses
@@ -1256,6 +1282,8 @@ paths:
           description: Created
           schema:
             $ref: '#/definitions/domain.ExpenseRecord'
+      security:
+      - ApiKeyAuth: []
       summary: Create expense
       tags:
       - expenses
@@ -1270,6 +1298,8 @@ paths:
       responses:
         "204":
           description: No Content
+      security:
+      - ApiKeyAuth: []
       summary: Delete expense
       tags:
       - expenses
@@ -1293,6 +1323,8 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - ApiKeyAuth: []
       summary: Get expense
       tags:
       - expenses
@@ -1318,6 +1350,8 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/domain.ExpenseRecord'
+      security:
+      - ApiKeyAuth: []
       summary: Update expense
       tags:
       - expenses
@@ -1338,6 +1372,8 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - ApiKeyAuth: []
       summary: Download expense receipt
       tags:
       - expenses
@@ -1362,6 +1398,8 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/domain.ExpenseRecord'
+      security:
+      - ApiKeyAuth: []
       summary: Upload expense receipt
       tags:
       - expenses
@@ -1400,6 +1438,8 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - ApiKeyAuth: []
       summary: Dictate a draft expense
       tags:
       - expenses
@@ -1439,6 +1479,8 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - ApiKeyAuth: []
       summary: Parse a sentence into a draft expense
       tags:
       - expenses
@@ -1477,6 +1519,8 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - ApiKeyAuth: []
       summary: Scan a receipt into a draft expense
       tags:
       - expenses
@@ -1497,6 +1541,8 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - ApiKeyAuth: []
       summary: List visible groups
       tags:
       - groups
@@ -1529,6 +1575,8 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - ApiKeyAuth: []
       summary: Create group
       tags:
       - groups
@@ -1556,6 +1604,8 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - ApiKeyAuth: []
       summary: Delete group
       tags:
       - groups
@@ -1594,6 +1644,8 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - ApiKeyAuth: []
       summary: Update group
       tags:
       - groups
@@ -1626,6 +1678,8 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - ApiKeyAuth: []
       summary: Remove group member
       tags:
       - groups
@@ -1657,6 +1711,8 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - ApiKeyAuth: []
       summary: Add group member
       tags:
       - groups
@@ -1678,6 +1734,8 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - ApiKeyAuth: []
       summary: List generated reports
       tags:
       - reports
@@ -1698,6 +1756,8 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - ApiKeyAuth: []
       summary: Download a generated report
       tags:
       - reports
@@ -1718,6 +1778,8 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - ApiKeyAuth: []
       summary: List scheduled payments
       tags:
       - scheduled-payments
@@ -1750,6 +1812,8 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - ApiKeyAuth: []
       summary: Create scheduled payment
       tags:
       - scheduled-payments
@@ -1770,6 +1834,8 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - ApiKeyAuth: []
       summary: Delete scheduled payment
       tags:
       - scheduled-payments
@@ -1793,6 +1859,8 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - ApiKeyAuth: []
       summary: Get scheduled payment
       tags:
       - scheduled-payments
@@ -1836,6 +1904,8 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - ApiKeyAuth: []
       summary: Update scheduled payment
       tags:
       - scheduled-payments
@@ -1850,6 +1920,8 @@ paths:
             items:
               $ref: '#/definitions/domain.ExpenseCategory'
             type: array
+      security:
+      - ApiKeyAuth: []
       summary: List categories
       tags:
       - taxonomy
@@ -1870,6 +1942,8 @@ paths:
           description: Created
           schema:
             $ref: '#/definitions/domain.ExpenseCategory'
+      security:
+      - ApiKeyAuth: []
       summary: Create category
       tags:
       - taxonomy
@@ -1890,6 +1964,8 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - ApiKeyAuth: []
       summary: Delete category
       tags:
       - taxonomy
@@ -1921,6 +1997,8 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - ApiKeyAuth: []
       summary: Update category
       tags:
       - taxonomy
@@ -1935,6 +2013,8 @@ paths:
             items:
               $ref: '#/definitions/domain.ExpenseTag'
             type: array
+      security:
+      - ApiKeyAuth: []
       summary: List tags
       tags:
       - taxonomy
@@ -1955,6 +2035,8 @@ paths:
           description: Created
           schema:
             $ref: '#/definitions/domain.ExpenseTag'
+      security:
+      - ApiKeyAuth: []
       summary: Create tag
       tags:
       - taxonomy
@@ -1975,6 +2057,8 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - ApiKeyAuth: []
       summary: Delete tag
       tags:
       - taxonomy
@@ -2006,6 +2090,8 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - ApiKeyAuth: []
       summary: Update tag
       tags:
       - taxonomy
@@ -2020,6 +2106,8 @@ paths:
             items:
               $ref: '#/definitions/handler.userResponseBody'
             type: array
+      security:
+      - ApiKeyAuth: []
       summary: List users
       tags:
       - administration
@@ -2040,6 +2128,8 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - ApiKeyAuth: []
       summary: Delete user
       tags:
       - administration
@@ -2071,6 +2161,8 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - ApiKeyAuth: []
       summary: Manage user
       tags:
       - administration
@@ -2095,6 +2187,8 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/handler.userResponseBody'
+      security:
+      - ApiKeyAuth: []
       summary: Update notification preferences
       tags:
       - users
@@ -2124,6 +2218,8 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - ApiKeyAuth: []
       summary: Change password
       tags:
       - users
@@ -2136,6 +2232,8 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/handler.userResponseBody'
+      security:
+      - ApiKeyAuth: []
       summary: Get profile
       tags:
       - users
@@ -2156,6 +2254,8 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/handler.userResponseBody'
+      security:
+      - ApiKeyAuth: []
       summary: Update profile
       tags:
       - users
@@ -2170,6 +2270,8 @@ paths:
             additionalProperties:
               type: string
             type: object
+      security:
+      - ApiKeyAuth: []
       summary: Download profile image
       tags:
       - users
@@ -2189,6 +2291,8 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/handler.userResponseBody'
+      security:
+      - ApiKeyAuth: []
       summary: Upload profile image
       tags:
       - users
@@ -2204,4 +2308,11 @@ paths:
       summary: Get application version
       tags:
       - health
+securityDefinitions:
+  ApiKeyAuth:
+    description: Type "Bearer" followed by a space and the access token from POST
+      /auth/login or POST /auth/refresh.
+    in: header
+    name: Authorization
+    type: apiKey
 swagger: "2.0"

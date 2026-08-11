@@ -22,6 +22,7 @@ that production deployment requires approval.
 | `BOOTSTRAP_SUPER_ADMIN_EMAIL` | First deploy | Email address for the initial super-admin. |
 | `BOOTSTRAP_SUPER_ADMIN_PASSWORD` | First deploy | Strong password for the initial super-admin. |
 | `OPENAI_API_KEY` | Optional | Reserved for OpenAI-backed application capabilities. |
+| `METRICS_TOKEN` | Optional | Static bearer token gating `/metrics` (Prometheus can't do the interactive JWT login every other endpoint expects). Empty leaves `/metrics` unreachable rather than open — set this, and configure your scraper to send it as `Authorization: Bearer <token>`, before relying on scraping. Not yet wired into the chart's Secret template; there is no in-cluster `ServiceMonitor` today, so this has no consumer until one exists. |
 | `SMTP_ADDRESS` | Optional | SMTP relay address including port. |
 | `SMTP_USERNAME` | Optional | SMTP login user. |
 | `SMTP_PASSWORD` | Optional | SMTP login password. |

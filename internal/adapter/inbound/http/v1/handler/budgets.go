@@ -52,6 +52,7 @@ func (h budgetHandler) budget(request budgetRequest) domain.BudgetRecord {
 //
 //	@Summary	List budgets
 //	@Tags		budgets
+//	@Security	ApiKeyAuth
 //	@Produce	json
 //	@Success	200	{array}		domain.BudgetRecord
 //	@Failure	401	{object}	map[string]string
@@ -69,6 +70,7 @@ func (h budgetHandler) list(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	Get budget
 //	@Tags		budgets
+//	@Security	ApiKeyAuth
 //	@Produce	json
 //	@Param		budgetID	path		string	true	"Budget ID"
 //	@Success	200			{object}	domain.BudgetRecord
@@ -87,6 +89,7 @@ func (h budgetHandler) get(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	Create budget
 //	@Tags		budgets
+//	@Security	ApiKeyAuth
 //	@Accept		json
 //	@Produce	json
 //	@Param		request	body		budgetRequest	true	"Budget"
@@ -110,6 +113,7 @@ func (h budgetHandler) create(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	Update budget
 //	@Tags		budgets
+//	@Security	ApiKeyAuth
 //	@Accept		json
 //	@Produce	json
 //	@Param		budgetID	path		string			true	"Budget ID"
@@ -139,6 +143,7 @@ func (h budgetHandler) update(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	Delete budget
 //	@Tags		budgets
+//	@Security	ApiKeyAuth
 //	@Param		budgetID	path	string	true	"Budget ID"
 //	@Success	204
 //	@Failure	404	{object}	map[string]string

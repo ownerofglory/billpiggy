@@ -27,6 +27,7 @@ import (
 	"github.com/ownerofglory/billpiggy/internal/core/port/inbound"
 	"github.com/ownerofglory/billpiggy/internal/core/port/outbound"
 	"github.com/ownerofglory/billpiggy/internal/core/service"
+	sharedauth "github.com/ownerofglory/billpiggy/pkg/auth"
 	"github.com/ownerofglory/billpiggy/pkg/cors"
 	"github.com/ownerofglory/billpiggy/pkg/email"
 	"github.com/ownerofglory/billpiggy/pkg/health"
@@ -97,10 +98,14 @@ func (s stores) newLimiter(limit int, interval time.Duration) ratelimit.Limiter 
 	return postgresadapter.NewRateLimiter(s.pool, limit, interval)
 }
 
-// @title			BillPiggy API
-// @version		1.0
-// @description	API for personal cost tracking.
-// @BasePath		/
+// @title						BillPiggy API
+// @version					1.0
+// @description				API for personal cost tracking.
+// @BasePath					/
+// @securityDefinitions.apikey	ApiKeyAuth
+// @in							header
+// @name						Authorization
+// @description				Type "Bearer" followed by a space and the access token from POST /auth/login or POST /auth/refresh.
 func main() {
 	// Config parsing
 	var cfg config.BillPiggyAppConfig
@@ -315,7 +320,11 @@ func main() {
 	r.Get("/livez", healthRegistry.Live)
 	r.Get("/readyz", healthRegistry.Ready)
 	r.Get("/startupz", healthRegistry.Startup)
-	r.Get("/metrics", healthRegistry.Metrics)
+	// Gated by a static token, not the JWT middleware every other endpoint
+	// uses: Prometheus scrapes this and cannot do an interactive login.
+	// Metrics leak user counts, request volumes, and route names, so this
+	// must never be reachable without it.
+	r.With(sharedauth.RequireBearerToken(cfg.MetricsToken)).Get("/metrics", healthRegistry.Metrics)
 	healthRegistry.MarkStarted()
 
 	httpServer := http.Server{

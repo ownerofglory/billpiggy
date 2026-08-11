@@ -46,6 +46,7 @@ func (h groupHandler) actor(r *http.Request) domain.AppUser {
 //
 //	@Summary	List visible groups
 //	@Tags		groups
+//	@Security	ApiKeyAuth
 //	@Produce	json
 //	@Success	200	{array}		domain.UserGroup
 //	@Failure	401	{object}	map[string]string
@@ -63,6 +64,7 @@ func (h groupHandler) list(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	Create group
 //	@Tags		groups, administration
+//	@Security	ApiKeyAuth
 //	@Accept		json
 //	@Produce	json
 //	@Param		request	body		createGroupRequest	true	"Group"
@@ -91,6 +93,7 @@ func (h groupHandler) create(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	Update group
 //	@Tags		groups, administration
+//	@Security	ApiKeyAuth
 //	@Accept		json
 //	@Produce	json
 //	@Param		groupID	path		string				true	"Group ID"
@@ -120,6 +123,7 @@ func (h groupHandler) update(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	Delete group
 //	@Tags		groups, administration
+//	@Security	ApiKeyAuth
 //	@Param		groupID	path	string	true	"Group ID"
 //	@Success	204
 //	@Failure	403	{object}	map[string]string
@@ -143,6 +147,7 @@ func (h groupHandler) delete(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	Add group member
 //	@Tags		groups, administration
+//	@Security	ApiKeyAuth
 //	@Param		groupID	path	string	true	"Group ID"
 //	@Param		userID	path	string	true	"User ID"
 //	@Success	204
@@ -167,6 +172,7 @@ func (h groupHandler) addMember(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary	Remove group member
 //	@Tags		groups, administration
+//	@Security	ApiKeyAuth
 //	@Param		groupID	path	string	true	"Group ID"
 //	@Param		userID	path	string	true	"User ID"
 //	@Success	204
