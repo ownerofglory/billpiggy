@@ -120,6 +120,7 @@ func (h authHandler) acceptInvitation(w http.ResponseWriter, r *http.Request) {
 	}
 	user, err := h.service.AcceptInvitation(r.Context(), request.Token, request.Password, request.DisplayName)
 	if err != nil {
+		slog.Error("accept invitation", "error", err)
 		writeJSONError(w, http.StatusUnauthorized, "invitation is invalid or expired")
 		return
 	}

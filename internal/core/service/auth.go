@@ -216,17 +216,31 @@ func (s *AuthService) queueInvitationEmail(ctx context.Context, invitation domai
 }
 
 // AcceptInvitation creates a user from a valid invitation token. Self-registration is not supported.
+//
+// Every failure wraps ErrUnauthorized (or is its own distinct error) with
+// enough detail — which check failed, and the invitation's own ID — for a
+// caller to log something diagnosable server-side. The HTTP layer still
+// responds with the same generic "invalid or expired" message regardless of
+// which branch produced it: these details must never reach the client, since
+// telling an unauthenticated caller *why* a token was rejected would let them
+// enumerate valid-looking tokens or learn about invitations that aren't
+// theirs.
 func (s *AuthService) AcceptInvitation(ctx context.Context, rawToken, password, displayName string) (domain.AppUser, error) {
 	invitation, err := s.repository.GetInvitationByTokenHash(ctx, tokenHash(rawToken))
-	if err != nil || invitation.Status != domain.InvitationPending || !invitation.ExpiresAt.After(s.now()) {
-		return domain.AppUser{}, ErrUnauthorized
+	switch {
+	case err != nil:
+		return domain.AppUser{}, fmt.Errorf("%w: invitation token not found: %v", ErrUnauthorized, err)
+	case invitation.Status != domain.InvitationPending:
+		return domain.AppUser{}, fmt.Errorf("%w: invitation %s has status %q, not pending", ErrUnauthorized, invitation.ID, invitation.Status)
+	case !invitation.ExpiresAt.After(s.now()):
+		return domain.AppUser{}, fmt.Errorf("%w: invitation %s expired at %s", ErrUnauthorized, invitation.ID, invitation.ExpiresAt)
 	}
 	user, err := newUser(invitation.Email, password, displayName, invitation.Role, s.now())
 	if err != nil {
-		return domain.AppUser{}, err
+		return domain.AppUser{}, fmt.Errorf("build user from invitation %s: %w", invitation.ID, err)
 	}
 	if err := s.repository.AcceptInvitation(ctx, invitation.ID, user); err != nil {
-		return domain.AppUser{}, fmt.Errorf("accept invitation: %w", err)
+		return domain.AppUser{}, fmt.Errorf("accept invitation %s: %w", invitation.ID, err)
 	}
 	return user, nil
 }
