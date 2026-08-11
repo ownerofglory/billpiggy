@@ -49,6 +49,37 @@ func TestTranscribeReturnsTextAndUsage(t *testing.T) {
 	}
 }
 
+func TestTranscribeCorrectsFilenameExtensionFromContentType(t *testing.T) {
+	t.Parallel()
+	var capturedBody []byte
+	url := newServer(t, nil, func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read multipart body: %v", err)
+		}
+		capturedBody = body
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"text":"ok"}`)
+	})
+	client := newClient(t, url)
+
+	// Safari on iOS records audio/mp4, but browsers commonly upload the
+	// recorded blob under a generic or mismatched filename. OpenAI infers
+	// the codec from the extension, so the request must carry one that
+	// matches the actual content type rather than whatever the client sent.
+	if _, err := client.Transcribe(context.Background(), domain.TranscriptionRequest{
+		UserID: "owner-1", Audio: strings.NewReader("fake-audio-bytes"), Filename: "recording.webm", ContentType: "audio/mp4",
+	}); err != nil {
+		t.Fatalf("Transcribe: %v", err)
+	}
+	if !strings.Contains(string(capturedBody), "recording.mp4") {
+		t.Fatalf("filename extension was not corrected to match audio/mp4: %s", capturedBody)
+	}
+	if strings.Contains(string(capturedBody), "recording.webm") {
+		t.Fatalf("stale .webm extension still present: %s", capturedBody)
+	}
+}
+
 func TestTranscribeRequiresAudio(t *testing.T) {
 	t.Parallel()
 	client := newClient(t, "http://127.0.0.1:1")
