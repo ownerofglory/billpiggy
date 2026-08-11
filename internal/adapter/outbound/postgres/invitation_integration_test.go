@@ -66,9 +66,23 @@ func TestIdentityRepositoryInvitationCreateGetAccept(t *testing.T) {
 	}
 
 	// A second accept attempt against the same now-accepted invitation must
-	// fail cleanly rather than create a duplicate user.
-	if err := repository.AcceptInvitation(ctx, invitation.ID, newUser); err == nil {
+	// fail cleanly rather than create a duplicate user. Since the user insert
+	// runs before the invitation update in the same transaction, this also
+	// confirms a rejected update rolls the insert back rather than leaving an
+	// orphaned users row behind under a fresh random ID.
+	retryUser := domain.AppUser{
+		ID: uuid.NewString(), Email: invitation.Email, PasswordHash: "x", DisplayName: "Retry",
+		Role: domain.RoleMember, CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if err := repository.AcceptInvitation(ctx, invitation.ID, retryUser); err == nil {
 		t.Fatal("expected accepting an already-accepted invitation to fail")
+	}
+	var userCount int
+	if err := pool.QueryRow(ctx, `select count(*) from identity.users where email = $1`, invitation.Email).Scan(&userCount); err != nil {
+		t.Fatalf("count users: %v", err)
+	}
+	if userCount != 1 {
+		t.Fatalf("users with email %s = %d, want exactly 1 (the failed retry must not have left an orphaned row)", invitation.Email, userCount)
 	}
 }
 
