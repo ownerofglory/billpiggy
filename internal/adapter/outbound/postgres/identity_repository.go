@@ -141,8 +141,18 @@ func (r *IdentityRepository) CreateInvitation(ctx context.Context, invitation do
 	return err
 }
 
+// AcceptInvitation creates the user before marking the invitation accepted,
+// not after: invitations.accepted_by references identity.users(id), and
+// that foreign key isn't deferrable, so setting it to a user that doesn't
+// exist yet fails immediately rather than at commit. Both statements run in
+// the same transaction, so a failed update (invitation already accepted or
+// expired out from under a concurrent request) still rolls back the insert
+// — no orphaned user is left behind.
 func (r *IdentityRepository) AcceptInvitation(ctx context.Context, invitationID string, user domain.AppUser) error {
 	return pgxtx.Atomic(ctx, r.pool, func(ctx context.Context, querier pgxtx.Querier) error {
+		if _, err := querier.Exec(ctx, `insert into identity.users (id, email, password_hash, display_name, role, created_at, updated_at) values ($1, $2, $3, $4, $5, $6, $7)`, user.ID, user.Email, user.PasswordHash, user.DisplayName, user.Role, user.CreatedAt, user.UpdatedAt); err != nil {
+			return err
+		}
 		command, err := querier.Exec(ctx, `update identity.invitations set status = 'accepted', accepted_by = $2, accepted_at = now() where id = $1 and status = 'pending' and expires_at > now()`, invitationID, user.ID)
 		if err != nil {
 			return err
@@ -150,8 +160,7 @@ func (r *IdentityRepository) AcceptInvitation(ctx context.Context, invitationID 
 		if command.RowsAffected() != 1 {
 			return pgx.ErrNoRows
 		}
-		_, err = querier.Exec(ctx, `insert into identity.users (id, email, password_hash, display_name, role, created_at, updated_at) values ($1, $2, $3, $4, $5, $6, $7)`, user.ID, user.Email, user.PasswordHash, user.DisplayName, user.Role, user.CreatedAt, user.UpdatedAt)
-		return err
+		return nil
 	})
 }
 
