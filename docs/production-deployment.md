@@ -65,6 +65,7 @@ alongside the `MAILERSEND_*` entries above if a paid plan raises the real quota.
 | `INGRESS_CLUSTER_ISSUER` | Yes | `letsencrypt-prod` |
 | `INGRESS_TLS_SECRET_NAME` | Yes | `billpiggy-tls` |
 | `LOG_LEVEL` | Optional | `info` |
+| `PUBLIC_BASE_URL` | Optional | `https://app.billpiggy.example.com`. The externally reachable app (frontend) URL — may differ from `INGRESS_HOST`, which is this API's own host. Used to build links in outgoing email, e.g. an invitation's accept link. Without it, those emails carry a raw code instead of a link. |
 | `INFRASTRUCTURE_NAMESPACE` | IaC workflow | `billpiggy-infra` |
 | `K3S_STORAGE_CLASS` | IaC workflow | `local-path` |
 | `POSTGRES_BACKUP_SCHEDULE` | Optional | `0 3 * * *` |
