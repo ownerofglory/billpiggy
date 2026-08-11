@@ -139,8 +139,11 @@ func matchesExpense(expense domain.ExpenseRecord, filter outbound.ExpenseListFil
 }
 
 func cloneExpense(expense domain.ExpenseRecord) domain.ExpenseRecord {
-	expense.TagIDs = append([]string(nil), expense.TagIDs...)
-	expense.Items = append([]domain.ExpenseItem(nil), expense.Items...)
+	// Starting from []T{} rather than ([]T)(nil) guarantees a non-nil
+	// TagIDs/Items even when the source is nil/empty, so responses never
+	// serialize "tagIDs": null / "items": null.
+	expense.TagIDs = append([]string{}, expense.TagIDs...)
+	expense.Items = append([]domain.ExpenseItem{}, expense.Items...)
 	return expense
 }
 

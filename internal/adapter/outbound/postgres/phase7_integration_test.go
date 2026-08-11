@@ -140,6 +140,9 @@ func TestGroupRepositoryUpdateDeleteAndMembership(t *testing.T) {
 	if err != nil || fetched.Name != "Roommates" {
 		t.Fatalf("get group: %#v, %v", fetched, err)
 	}
+	if fetched.MemberIDs == nil {
+		t.Fatal("MemberIDs is nil for a group with zero members, want a non-nil empty slice")
+	}
 
 	if err := repository.AddMember(ctx, group.ID, member); err != nil {
 		t.Fatalf("add member: %v", err)
@@ -159,6 +162,11 @@ func TestGroupRepositoryUpdateDeleteAndMembership(t *testing.T) {
 	fetched, err = repository.GetGroup(ctx, group.ID)
 	if err != nil || len(fetched.MemberIDs) != 0 {
 		t.Fatalf("get group after remove: %#v, %v", fetched, err)
+	}
+	// A group with zero members previously left MemberIDs nil, serializing
+	// "memberIDs": null instead of the [] the OpenAPI spec promises.
+	if fetched.MemberIDs == nil {
+		t.Fatal("MemberIDs is nil, want a non-nil empty slice")
 	}
 
 	if err := repository.DeleteGroup(ctx, group.ID); err != nil {

@@ -34,7 +34,10 @@ func (s *GroupService) CreateGroup(ctx context.Context, actor domain.AppUser, na
 	if name == "" {
 		return domain.UserGroup{}, errors.New("group name is required")
 	}
-	value := domain.UserGroup{ID: uuid.NewString(), Name: name, CreatedBy: actor.ID, CreatedAt: s.now(), MemberIDs: append([]string(nil), members...)}
+	// []string{} rather than ([]string)(nil): append onto a nil base still
+	// returns nil when members is nil/empty, which would serialize the
+	// create response as "memberIDs": null instead of [].
+	value := domain.UserGroup{ID: uuid.NewString(), Name: name, CreatedBy: actor.ID, CreatedAt: s.now(), MemberIDs: append([]string{}, members...)}
 	return value, s.repository.CreateGroup(ctx, value)
 }
 

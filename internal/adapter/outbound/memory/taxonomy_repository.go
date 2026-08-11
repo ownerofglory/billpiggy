@@ -60,7 +60,9 @@ func (r *TaxonomyRepository) DeleteCategory(_ context.Context, owner, categoryID
 func (r *TaxonomyRepository) ListTags(_ context.Context, owner string) ([]domain.ExpenseTag, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return append([]domain.ExpenseTag(nil), r.tags[owner]...), nil
+	// []domain.ExpenseTag{} rather than (...)(nil): an owner with zero tags
+	// would otherwise serialize the whole list as null instead of [].
+	return append([]domain.ExpenseTag{}, r.tags[owner]...), nil
 }
 func (r *TaxonomyRepository) CreateTag(_ context.Context, owner string, value domain.ExpenseTag) error {
 	r.mu.Lock()

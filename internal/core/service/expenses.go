@@ -125,11 +125,15 @@ func (s *ExpenseService) visibleGroupIDs(ctx context.Context, viewer domain.AppU
 // CreateExpense creates an expense for the authenticated owner.
 func (s *ExpenseService) CreateExpense(ctx context.Context, ownerID string, command CreateExpenseCommand) (domain.ExpenseRecord, error) {
 	now := s.now()
+	// append(([]T)(nil), src...) still returns nil when src is nil/empty —
+	// starting from []T{} instead guarantees a non-nil TagIDs/Items even
+	// when the command omits them, so the create response never serializes
+	// "tagIDs": null / "items": null.
 	expense := domain.ExpenseRecord{
 		ID: uuid.NewString(), OwnerID: ownerID, Title: strings.TrimSpace(command.Title), AmountMinor: command.AmountMinor,
 		Currency: strings.ToUpper(strings.TrimSpace(command.Currency)), OccurredAt: command.OccurredAt.UTC(), CategoryID: command.CategoryID,
-		CategoryName: strings.TrimSpace(command.CategoryName), TagIDs: append([]string(nil), command.TagIDs...), Status: command.Status,
-		SharedGroupID: command.SharedGroupID, Items: append([]domain.ExpenseItem(nil), command.Items...), Latitude: command.Latitude,
+		CategoryName: strings.TrimSpace(command.CategoryName), TagIDs: append([]string{}, command.TagIDs...), Status: command.Status,
+		SharedGroupID: command.SharedGroupID, Items: append([]domain.ExpenseItem{}, command.Items...), Latitude: command.Latitude,
 		Longitude: command.Longitude, Address: strings.TrimSpace(command.Address), ReceiptObjectKey: command.ReceiptObjectKey, CreatedAt: now, UpdatedAt: now,
 	}
 	if expense.Status == "" {
@@ -165,7 +169,7 @@ func (s *ExpenseService) UpdateExpense(ctx context.Context, ownerID, expenseID s
 	}
 	expense.Title, expense.AmountMinor, expense.Currency = strings.TrimSpace(command.Title), command.AmountMinor, strings.ToUpper(strings.TrimSpace(command.Currency))
 	expense.OccurredAt, expense.CategoryID, expense.CategoryName = command.OccurredAt.UTC(), command.CategoryID, strings.TrimSpace(command.CategoryName)
-	expense.TagIDs, expense.Status, expense.SharedGroupID, expense.Items = append([]string(nil), command.TagIDs...), command.Status, command.SharedGroupID, append([]domain.ExpenseItem(nil), command.Items...)
+	expense.TagIDs, expense.Status, expense.SharedGroupID, expense.Items = append([]string{}, command.TagIDs...), command.Status, command.SharedGroupID, append([]domain.ExpenseItem{}, command.Items...)
 	expense.Latitude, expense.Longitude, expense.Address = command.Latitude, command.Longitude, strings.TrimSpace(command.Address)
 	// ReceiptObjectKey is deliberately left untouched here: the HTTP DTO never
 	// carries it, so overwriting it from the command wiped every receipt on

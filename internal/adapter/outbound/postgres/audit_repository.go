@@ -71,7 +71,10 @@ func (r *AuditRepository) ListEntries(ctx context.Context, filter outbound.Audit
 	defer rows.Close()
 	entries := make([]domain.AuditEntry, 0)
 	for rows.Next() {
-		var entry domain.AuditEntry
+		// Pre-initialized so a row with an empty/NULL metadata column stays
+		// "metadata": {} rather than null — Unmarshal below populates this
+		// same map when there is data instead of replacing it.
+		entry := domain.AuditEntry{Metadata: map[string]string{}}
 		var metadata []byte
 		if err := rows.Scan(&entry.EventID, &entry.ActorID, &entry.Action, &entry.ResourceType, &entry.ResourceID, &metadata, &entry.OccurredAt); err != nil {
 			return nil, err

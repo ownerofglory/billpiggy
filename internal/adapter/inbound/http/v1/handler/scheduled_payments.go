@@ -55,9 +55,16 @@ func (h scheduledPaymentHandler) actor(r *http.Request) domain.AppUser {
 }
 
 func (h scheduledPaymentHandler) payment(request scheduledPaymentRequest) domain.ScheduledPayment {
+	// Create/update respond with this value directly, without a DB re-read,
+	// so a request that omits tag_ids must still produce "tagIDs": [] here
+	// rather than null.
+	tagIDs := request.TagIDs
+	if tagIDs == nil {
+		tagIDs = []string{}
+	}
 	return domain.ScheduledPayment{
 		Title: request.Title, AmountMinor: request.AmountMinor, Currency: request.Currency,
-		CategoryID: request.CategoryID, CategoryName: request.CategoryName, TagIDs: request.TagIDs,
+		CategoryID: request.CategoryID, CategoryName: request.CategoryName, TagIDs: tagIDs,
 		SharedGroupID: request.SharedGroupID, Frequency: request.Frequency,
 		CustomIntervalDays: request.CustomIntervalDays, StartDate: request.StartDate, EndDate: request.EndDate,
 		AutoPost: request.AutoPost, ReminderDaysBefore: request.ReminderDaysBefore, Paused: request.Paused,

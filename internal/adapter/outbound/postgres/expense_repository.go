@@ -205,7 +205,12 @@ func loadRelations(ctx context.Context, querier pgxtx.Querier, expenses []domain
 }
 
 func scanExpense(row pgx.Row) (domain.ExpenseRecord, error) {
-	var expense domain.ExpenseRecord
+	// TagIDs/Items start as empty (not nil) slices: loadRelations only
+	// appends when a matching row exists, so an expense with zero tags or
+	// items would otherwise serialize as "tagIDs": null / "items": null
+	// instead of [] — a real spec violation the frontend already had to
+	// work around defensively.
+	expense := domain.ExpenseRecord{TagIDs: []string{}, Items: []domain.ExpenseItem{}}
 	var status string
 	err := row.Scan(&expense.ID, &expense.OwnerID, &expense.Title, &expense.AmountMinor, &expense.Currency,
 		&expense.OccurredAt, &expense.CategoryID, &expense.CategoryName, &status, &expense.SharedGroupID,

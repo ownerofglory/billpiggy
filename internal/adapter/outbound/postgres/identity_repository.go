@@ -106,6 +106,9 @@ func (r *IdentityRepository) UpdateUser(ctx context.Context, user domain.AppUser
 // as no overrides rather than an error.
 func unmarshalPreferences(raw []byte, preferences *map[domain.NotificationKind]bool) error {
 	if len(raw) == 0 {
+		// Non-nil so callers' responses serialize
+		// "notification_preferences": {} rather than null.
+		*preferences = map[domain.NotificationKind]bool{}
 		return nil
 	}
 	return json.Unmarshal(raw, preferences)

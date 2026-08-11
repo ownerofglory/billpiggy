@@ -158,7 +158,10 @@ func (s *ScheduledPaymentService) UpdateScheduledPayment(ctx context.Context, ow
 	payment.Currency = strings.ToUpper(strings.TrimSpace(update.Currency))
 	payment.CategoryID = update.CategoryID
 	payment.CategoryName = strings.TrimSpace(update.CategoryName)
-	payment.TagIDs = append([]string(nil), update.TagIDs...)
+	// []string{} rather than ([]string)(nil): the update response is this
+	// same value with no DB re-read, so an update that omits tag_ids must
+	// still produce "tagIDs": [] rather than null.
+	payment.TagIDs = append([]string{}, update.TagIDs...)
 	payment.SharedGroupID = update.SharedGroupID
 	payment.Frequency = update.Frequency
 	payment.CustomIntervalDays = update.CustomIntervalDays
@@ -312,7 +315,7 @@ func (s *ScheduledPaymentService) postExpense(ctx context.Context, payment domai
 	expense := domain.ExpenseRecord{
 		ID: expenseID, OwnerID: payment.OwnerID, Title: payment.Title, AmountMinor: payment.AmountMinor,
 		Currency: payment.Currency, OccurredAt: dueAt.UTC(), CategoryID: payment.CategoryID,
-		CategoryName: payment.CategoryName, TagIDs: append([]string(nil), payment.TagIDs...),
+		CategoryName: payment.CategoryName, TagIDs: append([]string{}, payment.TagIDs...),
 		Status: domain.ExpenseConfirmed, SharedGroupID: payment.SharedGroupID, CreatedAt: now, UpdatedAt: now,
 	}
 	if expense.SharedGroupID != "" {
