@@ -15,6 +15,21 @@ import (
 
 var ErrInvalidExpense = errors.New("invalid expense")
 
+// Bounds enforced by validateExpense. None of expenses.expenses' text columns
+// have a database-level length constraint (plain TEXT), and nothing upstream
+// enforces one either — an AI-extracted draft is schema-constrained on which
+// fields it can carry, but not on how long any of them are. These exist so a
+// malformed or adversarial draft (or a directly-called API request) cannot
+// persist an unbounded string or an unbounded number of line items.
+const (
+	maxExpenseTitleLength       = 200
+	maxCategoryNameLength       = 100
+	maxAddressLength            = 300
+	maxExpenseItems             = 100
+	maxItemTitleLength          = 200
+	maxAmountMinor        int64 = 1_000_000_000_00 // 1 billion currency units, in minor units
+)
+
 // ObjectResourceExpenseReceipt identifies expense receipts to the object
 // reference tracker.
 const ObjectResourceExpenseReceipt = "expense_receipt"
@@ -323,6 +338,20 @@ type UpdateExpenseCommand = CreateExpenseCommand
 func validateExpense(expense domain.ExpenseRecord) error {
 	if expense.OwnerID == "" || expense.Title == "" || expense.AmountMinor < 0 || len(expense.Currency) != 3 || expense.OccurredAt.IsZero() {
 		return ErrInvalidExpense
+	}
+	if len(expense.Title) > maxExpenseTitleLength || len(expense.CategoryName) > maxCategoryNameLength || len(expense.Address) > maxAddressLength {
+		return ErrInvalidExpense
+	}
+	if expense.AmountMinor > maxAmountMinor {
+		return ErrInvalidExpense
+	}
+	if len(expense.Items) > maxExpenseItems {
+		return ErrInvalidExpense
+	}
+	for _, item := range expense.Items {
+		if len(item.Title) > maxItemTitleLength || item.AmountMinor < 0 || item.AmountMinor > maxAmountMinor {
+			return ErrInvalidExpense
+		}
 	}
 	switch expense.Status {
 	case domain.ExpenseDraft, domain.ExpenseConfirmed, domain.ExpenseShared, domain.ExpenseReimbursed:
