@@ -40,7 +40,7 @@ import (
 // latestMigrationVersion is the newest migration this build expects to find
 // applied. It backs the "migrations applied" readiness check and must be
 // bumped alongside every new migrations/NNNNNN_*.up.sql file.
-const latestMigrationVersion = "000015_notification_preferences"
+const latestMigrationVersion = "000018_more_default_categories"
 
 // cacheTTL bounds how stale a cached user, category, tag, or group list may
 // be before the next read re-fetches it. Short enough that an admin change

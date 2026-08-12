@@ -1,0 +1,108 @@
+name: Release train
+
+# Automatically applies pending migrations and deploys the exact image/chart
+# pair a GitHub Release publishes: release v1.0.0 implies Docker image 1.0.0
+# and Helm chart 1.0.0 (docker-release.yaml and helm-release.yaml both
+# already trigger on the same tag push and strip the leading "v"). Since
+# those two workflows run independently and this one can't know which
+# finishes first, it polls both registries for the resolved version rather
+# than trusting trigger order. It then reuses the same "Apply database
+# migrations" and "Deploy Kubernetes production" workflows a human runs by
+# hand, via workflow_call, so there is exactly one place each step is
+# defined — the chart's own pre-upgrade hook (migrations-check-job.yaml)
+# still refuses to deploy if any migration is somehow still pending.
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  resolve:
+    name: Resolve version and wait for the image and chart
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+    steps:
+      - id: version
+        name: Resolve version from the release tag
+        shell: bash
+        run: |
+          tag='${{ github.event.release.tag_name }}'
+          echo "value=${tag#v}" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USER }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+      - name: Wait for the Docker image to be published
+        env:
+          IMAGE_REPOSITORY: ${{ vars.DOCKER_IMAGE_NAME || format('{0}/billpiggy', secrets.DOCKER_USER) }}
+          VERSION: ${{ steps.version.outputs.value }}
+        shell: bash
+        run: |
+          elapsed=0
+          timeout=600
+          interval=15
+          until docker manifest inspect "$IMAGE_REPOSITORY:$VERSION" >/dev/null 2>&1; do
+            if [ "$elapsed" -ge "$timeout" ]; then
+              echo "docker image $IMAGE_REPOSITORY:$VERSION did not appear within ${timeout}s - is 'Docker release build and push' still running, or did it fail?" >&2
+              exit 1
+            fi
+            echo "waiting for docker image $IMAGE_REPOSITORY:$VERSION ..."
+            sleep "$interval"
+            elapsed=$((elapsed + interval))
+          done
+          echo "docker image $IMAGE_REPOSITORY:$VERSION is available"
+      - uses: azure/setup-helm@v4
+      - name: Log in to GitHub Container Registry
+        run: echo '${{ secrets.GITHUB_TOKEN }}' | helm registry login ghcr.io -u '${{ github.actor }}' --password-stdin
+      - name: Wait for the Helm chart to be published
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        shell: bash
+        run: |
+          owner="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          chart="oci://ghcr.io/$owner/helm-charts/billpiggy"
+          elapsed=0
+          timeout=600
+          interval=15
+          until helm show chart "$chart" --version "$VERSION" >/dev/null 2>&1; do
+            if [ "$elapsed" -ge "$timeout" ]; then
+              echo "helm chart $chart version $VERSION did not appear within ${timeout}s - is 'Publish Helm chart' still running, or did it fail?" >&2
+              exit 1
+            fi
+            echo "waiting for helm chart $chart version $VERSION ..."
+            sleep "$interval"
+            elapsed=$((elapsed + interval))
+          done
+          echo "helm chart $chart version $VERSION is available"
+
+  migrate:
+    name: Apply database migrations
+    needs: resolve
+    uses: ./.github/workflows/database-migrate.yaml
+    with:
+      image_tag: ${{ needs.resolve.outputs.version }}
+      confirm: MIGRATE
+    secrets: inherit
+
+  deploy:
+    name: Deploy to production
+    needs: [resolve, migrate]
+    uses: ./.github/workflows/deploy-production.yaml
+    with:
+      chart_version: ${{ needs.resolve.outputs.version }}
+      image_tag: ${{ needs.resolve.outputs.version }}
+    secrets: inherit
+
+  smoke:
+    name: Post-deploy smoke test
+    needs: deploy
+    # workflow_run (post-deploy-smoke.yaml's other trigger) never fires for a
+    # workflow_call invocation of "Deploy Kubernetes production", so the
+    # release train calls it directly instead of relying on that chain.
+    uses: ./.github/workflows/post-deploy-smoke.yaml
+    secrets: inherit

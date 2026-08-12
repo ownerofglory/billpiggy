@@ -130,9 +130,10 @@ func truncateAll(t *testing.T, pool *pgxpool.Pool) {
 		t.Fatalf("reset global sequence: %v", err)
 	}
 	// CASCADE reaches expenses.categories through its owner_id foreign key, so
-	// the default categories go with it. Re-running their seed migration puts
-	// them back; it is written to be idempotent.
+	// the default categories go with it. Re-running their seed migrations puts
+	// them back; both are written to be idempotent.
 	applyMigration(t, pool, "000008_seed_default_categories.up.sql")
+	applyMigration(t, pool, "000018_more_default_categories.up.sql")
 }
 
 // seedUser inserts a user the foreign keys require and returns its id.

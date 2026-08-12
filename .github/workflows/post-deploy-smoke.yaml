@@ -10,6 +10,15 @@ on:
         description: Override host to check instead of the INGRESS_HOST variable
         required: false
         type: string
+  # workflow_run only fires for a directly-triggered run of "Deploy
+  # Kubernetes production", not one invoked via workflow_call — so
+  # release-train.yaml calls this explicitly after its own deploy job.
+  workflow_call:
+    inputs:
+      host:
+        description: Override host to check instead of the INGRESS_HOST variable
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -17,7 +26,7 @@ permissions:
 jobs:
   smoke:
     name: Probe health endpoints
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-22.04
     environment: production
     steps:

@@ -11,6 +11,20 @@ on:
         description: Type MIGRATE to apply migrations
         required: true
         type: string
+  # Lets release-train.yaml apply migrations as part of an automated release
+  # without a human retyping the confirmation phrase — the confirm input
+  # still exists here so the check below stays identical for both triggers;
+  # an automated caller simply passes 'MIGRATE' itself.
+  workflow_call:
+    inputs:
+      image_tag:
+        description: Container image tag containing the migrations to apply
+        required: true
+        type: string
+      confirm:
+        description: Must be exactly MIGRATE to apply migrations
+        required: true
+        type: string
 
 permissions:
   contents: read
