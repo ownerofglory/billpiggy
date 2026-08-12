@@ -219,17 +219,23 @@ func (e *Engine) Stats() Stats {
 }
 
 // Health returns a readiness check that fails when the subscription has
-// messages pending but has not committed one within staleness, or when any
-// message has been dead-lettered.
+// messages pending but has not committed one within staleness.
+//
+// Dead-lettered messages do not fail this check on their own: DeadLettered is
+// a lifetime counter, so gating readiness on it directly would leave the
+// subscription permanently unready after a single poisoned message, even
+// once it has been skipped and the backlog behind it has drained. A dead
+// letter that blocks later events for its own aggregate still surfaces here,
+// since those events stay pending and eventually trip the staleness check
+// below; a lone dead letter with nothing queued behind it does not. Dead
+// letters remain visible via the DeadLettered stat and the
+// billpiggy_outbox_dead_lettered gauge for alerting.
 //
 // It returns a bare function so this package never depends on the health
 // registry; callers register it themselves.
 func (e *Engine) Health(staleness time.Duration) func(context.Context) error {
 	return func(ctx context.Context) error {
 		stats := e.Stats()
-		if stats.DeadLettered > 0 {
-			return fmt.Errorf("subscription %s dead-lettered %d messages: %s", stats.Subscription, stats.DeadLettered, stats.LastError)
-		}
 		lag, err := e.store.Lag(ctx, stats.Subscription)
 		if err != nil {
 			return fmt.Errorf("read %s lag: %w", stats.Subscription, err)

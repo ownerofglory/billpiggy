@@ -282,7 +282,7 @@ func TestEngineReportsLagAndHealth(t *testing.T) {
 	}
 }
 
-func TestEngineHealthFailsAfterDeadLetter(t *testing.T) {
+func TestEngineHealthRecoversAfterALoneDeadLetter(t *testing.T) {
 	t.Parallel()
 	store := memory.NewEventStore()
 	handler := &recordingHandler{name: "dead", failWith: errors.New("poison")}
@@ -293,8 +293,40 @@ func TestEngineHealthFailsAfterDeadLetter(t *testing.T) {
 	if _, err := engine.Step(context.Background()); err != nil {
 		t.Fatalf("step: %v", err)
 	}
+	// The dead-lettered message has nothing queued behind it, so the backlog
+	// is drained and readiness must not stay permanently unready over it.
+	if err := engine.Health(time.Hour)(context.Background()); err != nil {
+		t.Fatalf("a lone dead-lettered message with an empty backlog must not fail readiness: %v", err)
+	}
+}
+
+func TestEngineHealthFailsWhileADeadLetterBlocksItsAggregate(t *testing.T) {
+	t.Parallel()
+	clock := &testClock{now: time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC)}
+	store := memory.NewEventStore().WithClock(clock.Now)
+	handler := &recordingHandler{name: "blocking", failWith: errors.New("poison")}
+	if err := store.EnsureSubscription(context.Background(), handler.Name()); err != nil {
+		t.Fatalf("register subscription: %v", err)
+	}
+	policy := outbox.Policy{MaxAttempts: 1, BaseBackoff: time.Second, MaxBackoff: time.Second, LeaseTTL: time.Minute}
+	engine, err := outbox.NewEngine(store, handler, outbox.Options{Policy: policy, Clock: clock.Now})
+	if err != nil {
+		t.Fatalf("build engine: %v", err)
+	}
+	if err := store.Append(context.Background(), event("expense", "expense-1", "expense_added")); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	if err := store.Append(context.Background(), event("expense", "expense-1", "expense_updated")); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	if _, err := engine.Step(context.Background()); err != nil {
+		t.Fatalf("step: %v", err)
+	}
+	// The dead-lettered message's sibling stays pending behind it, so the
+	// subscription is genuinely stuck once that outlasts the staleness window.
+	clock.advance(2 * time.Hour)
 	if err := engine.Health(time.Hour)(context.Background()); err == nil {
-		t.Fatal("a dead-lettered message must fail the readiness check")
+		t.Fatal("an event stuck behind a dead-lettered sibling must fail the readiness check")
 	}
 }
 
