@@ -52,5 +52,6 @@ func DefaultCategories() []ExpenseCategory {
 		{ID: "0197c1a0-0000-4000-8000-00000000000c", Name: "Travel", Color: "#06b6d4", IsDefault: true},
 		{ID: "0197c1a0-0000-4000-8000-00000000000d", Name: "Personal Care", Color: "#d946ef", IsDefault: true},
 		{ID: "0197c1a0-0000-4000-8000-00000000000e", Name: "Investments", Color: "#22c55e", IsDefault: true},
+		{ID: "0197c1a0-0000-4000-8000-00000000000f", Name: "Shopping", Color: "#eab308", IsDefault: true},
 	}
 }

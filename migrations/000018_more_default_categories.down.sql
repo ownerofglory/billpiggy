@@ -9,7 +9,8 @@ DELETE FROM expenses.categories c
        '0197c1a0-0000-4000-8000-00000000000b',
        '0197c1a0-0000-4000-8000-00000000000c',
        '0197c1a0-0000-4000-8000-00000000000d',
-       '0197c1a0-0000-4000-8000-00000000000e'
+       '0197c1a0-0000-4000-8000-00000000000e',
+       '0197c1a0-0000-4000-8000-00000000000f'
    )
    AND NOT EXISTS (SELECT 1 FROM expenses.expenses e WHERE e.category_id = c.id)
    AND NOT EXISTS (SELECT 1 FROM budgets.budgets b WHERE b.category_id = c.id);

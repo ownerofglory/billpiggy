@@ -14,7 +14,8 @@ VALUES
     ('0197c1a0-0000-4000-8000-00000000000b', NULL, 'Insurance',     '#3b82f6', true),
     ('0197c1a0-0000-4000-8000-00000000000c', NULL, 'Travel',        '#06b6d4', true),
     ('0197c1a0-0000-4000-8000-00000000000d', NULL, 'Personal Care', '#d946ef', true),
-    ('0197c1a0-0000-4000-8000-00000000000e', NULL, 'Investments',   '#22c55e', true)
+    ('0197c1a0-0000-4000-8000-00000000000e', NULL, 'Investments',   '#22c55e', true),
+    ('0197c1a0-0000-4000-8000-00000000000f', NULL, 'Shopping',      '#eab308', true)
 ON CONFLICT (id) DO UPDATE
     SET name = excluded.name,
         color = excluded.color,
