@@ -110,21 +110,62 @@ marker; it never touches state content or infrastructure.
 
 ## Run a deployment
 
-1. Publish the release image through the Docker release workflow.
-2. Publish the matching Helm chart through the Helm release workflow.
-3. Run **Apply database migrations** for that image tag.
-4. Run **Deploy Kubernetes production** manually and provide:
+### Automatic: the release train
+
+Publishing a GitHub Release (e.g. tag `v1.0.0`) is normally all that's needed. That
+tag push already triggers the Docker release workflow and the Helm release workflow
+in parallel, publishing image `1.0.0` and chart `1.0.0` (the leading `v` is stripped
+from both). The **Release train** workflow (`release-train.yaml`) then runs
+automatically on the release's `published` event:
+
+1. Resolves the version from the release tag and polls both registries until the
+   image and the chart for that exact version exist — this doesn't assume either of
+   the two build workflows finishes first, and fails with a clear message if a build
+   never completes rather than deploying half of a release.
+2. Calls **Apply database migrations** for that image tag.
+3. Calls **Deploy Kubernetes production** with `chart_version` and `image_tag` both
+   set to the resolved version.
+4. Calls **Post-deploy smoke test**.
+
+Each of those is the same workflow a human would run by hand (see below) — the
+release train calls them as reusable workflows (`workflow_call`) rather than
+duplicating their steps, so there's exactly one place each step is defined.
+
+### Manual: for a feature branch, a hotfix, or re-running one step
+
+The three workflows the release train calls remain fully usable on their own via
+`workflow_dispatch` — useful for deploying an unreleased build, retrying just one
+step, or trying out a feature branch's image/chart without cutting a release:
+
+1. Publish the image through the Docker release workflow and the chart through the
+   Helm release workflow (either by pushing a `v*` tag, or by pushing to `main`,
+   which publishes a `0.1.0-main.<short-sha>` build).
+2. Run **Apply database migrations**, providing the image tag and typing `MIGRATE`
+   to confirm.
+3. Run **Deploy Kubernetes production**, providing:
    - `chart_version`: the published chart version, without a leading `v`;
    - `image_tag`: the image tag created by the Docker workflow.
 
 The deployment waits up to five minutes for the Helm release. The application probes
 `/livez`, `/readyz`, and `/startupz`; a deployment is not ready until its required
-runtime dependencies are ready.
+runtime dependencies are ready. The chart's own pre-upgrade hook
+(`migrations-check-job.yaml`) refuses the release outright if any migration is still
+pending, regardless of which path — automatic or manual — got you there.
 
 The **Post-deploy smoke test** workflow runs automatically after a successful
-**Deploy Kubernetes production** run (or on demand via `workflow_dispatch`) and curls
-those same three endpoints over the public ingress, so a deploy that reports success
-in-cluster but isn't actually reachable gets caught immediately.
+**Deploy Kubernetes production** *manual* run (or on demand via `workflow_dispatch`)
+and curls those same three endpoints over the public ingress, so a deploy that
+reports success in-cluster but isn't actually reachable gets caught immediately. The
+release train calls it directly as a fourth step instead, since `workflow_run`
+doesn't fire for a `workflow_call` invocation.
+
+## Restart the service
+
+The **Restart production service** workflow (`restart-production.yaml`, manual
+`workflow_dispatch` only) scales the Deployment to 0 replicas, waits for its pods to
+actually terminate, then scales back to 1 and waits for the new pod to become ready.
+Useful for clearing a stuck process — e.g. one wedged on a hung external
+call — without a new image or a full redeploy.
 
 ## Cross-origin access
 

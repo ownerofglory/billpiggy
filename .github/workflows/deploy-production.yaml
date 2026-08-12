@@ -11,6 +11,18 @@ on:
         description: Container image tag to deploy
         required: true
         type: string
+  # Lets release-train.yaml deploy automatically once a release's image and
+  # chart are both published and migrations have already been applied.
+  workflow_call:
+    inputs:
+      chart_version:
+        description: Published Helm chart version to deploy
+        required: true
+        type: string
+      image_tag:
+        description: Container image tag to deploy
+        required: true
+        type: string
 
 permissions:
   contents: read

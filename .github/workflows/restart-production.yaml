@@ -1,0 +1,43 @@
+name: Restart production service
+
+# Scales the Deployment to 0 replicas and back to 1, rather than deleting
+# pods directly, so a stuck pod (e.g. a hung goroutine that never fails its
+# liveness probe) gets a clean restart on demand without a new deploy.
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  restart:
+    runs-on: ubuntu-22.04
+    environment: production
+    steps:
+      - name: Configure cluster access
+        env:
+          KUBERNETES_CA_DATA: ${{ secrets.KUBERNETES_CA_DATA }}
+          KUBERNETES_CLUSTER_SERVER_URL: ${{ secrets.KUBERNETES_CLUSTER_SERVER_URL }}
+          KUBERNETES_NAMESPACE: ${{ secrets.KUBERNETES_NAMESPACE }}
+          KUBERNETES_CLIENT_CA_DATA: ${{ secrets.KUBERNETES_CLIENT_CA_DATA }}
+          KUBERNETES_CLIENT_KEY_DATA: ${{ secrets.KUBERNETES_CLIENT_KEY_DATA }}
+        run: envsubst < .kube/config > "$RUNNER_TEMP/kubeconfig"
+      - uses: azure/setup-kubectl@v4
+      - name: Scale to 0
+        env:
+          KUBECONFIG: ${{ runner.temp }}/kubeconfig
+          KUBERNETES_NAMESPACE: ${{ secrets.KUBERNETES_NAMESPACE }}
+        run: |
+          kubectl scale deployment/billpiggy --replicas=0 --namespace="$KUBERNETES_NAMESPACE"
+          kubectl wait --for=delete pod \
+            --selector=app.kubernetes.io/instance=billpiggy \
+            --namespace="$KUBERNETES_NAMESPACE" \
+            --timeout=120s
+      - name: Scale to 1
+        env:
+          KUBECONFIG: ${{ runner.temp }}/kubeconfig
+          KUBERNETES_NAMESPACE: ${{ secrets.KUBERNETES_NAMESPACE }}
+        run: |
+          kubectl scale deployment/billpiggy --replicas=1 --namespace="$KUBERNETES_NAMESPACE"
+          kubectl rollout status deployment/billpiggy --namespace="$KUBERNETES_NAMESPACE" --timeout=120s
