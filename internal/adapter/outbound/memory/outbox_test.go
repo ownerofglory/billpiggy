@@ -282,7 +282,15 @@ func TestEngineReportsLagAndHealth(t *testing.T) {
 	}
 }
 
-func TestEngineHealthRecoversAfterALoneDeadLetter(t *testing.T) {
+// TestEngineHealthRecoversAfterDeadLetter guards against a readiness check
+// that stays unhealthy forever once a single message is dead-lettered.
+// DeadLettered removes the message from the pending count (Lag only counts
+// what is still outstanding), so a subscription making progress on
+// everything after a poison message is not stuck and must not permanently
+// fail readiness over it — that would mean a pod can never become Ready
+// again without a restart, long after the one bad message stopped mattering.
+// The count itself stays visible via Stats().DeadLettered for alerting.
+func TestEngineHealthRecoversAfterDeadLetter(t *testing.T) {
 	t.Parallel()
 	store := memory.NewEventStore()
 	handler := &recordingHandler{name: "dead", failWith: errors.New("poison")}
