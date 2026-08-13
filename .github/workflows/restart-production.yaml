@@ -15,6 +15,7 @@ jobs:
     runs-on: ubuntu-22.04
     environment: production
     steps:
+      - uses: actions/checkout@v4
       - name: Configure cluster access
         env:
           KUBERNETES_CA_DATA: ${{ secrets.KUBERNETES_CA_DATA }}
