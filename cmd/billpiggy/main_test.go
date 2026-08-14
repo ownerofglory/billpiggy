@@ -40,3 +40,20 @@ func TestLatestMigrationVersionMatchesTheNewestMigrationFile(t *testing.T) {
 		t.Fatalf("latestMigrationVersion = %q, want %q (the newest migration file) — bump it in main.go alongside every new migrations/NNNNNN_*.up.sql file", latestMigrationVersion, newest)
 	}
 }
+
+// TestPostgresPoolConfigSetsLockTimeout guards against the app going fully
+// unresponsive without crashing: a connection with no lock_timeout blocks
+// forever waiting on a contended row lock, pinning a pool connection until
+// the pool has none left for anything else, HTTP requests included. This was
+// observed live as two outbox projectors stuck at a fixed pending count
+// (readyz correctly reporting them stale) followed by the app no longer
+// accepting requests at all.
+func TestPostgresPoolConfigSetsLockTimeout(t *testing.T) {
+	poolConfig, err := postgresPoolConfig("postgres://user:pass@localhost:5432/billpiggy")
+	if err != nil {
+		t.Fatalf("postgresPoolConfig: %v", err)
+	}
+	if got := poolConfig.ConnConfig.RuntimeParams["lock_timeout"]; got != "10s" {
+		t.Fatalf("lock_timeout = %q, want %q", got, "10s")
+	}
+}

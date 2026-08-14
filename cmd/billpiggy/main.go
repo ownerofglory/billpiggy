@@ -433,6 +433,26 @@ func applicationObjectStore(cfg config.BillPiggyAppConfig, healthRegistry *healt
 	return store, nil
 }
 
+// postgresPoolConfig parses databaseURL and bounds how long a connection will
+// wait to acquire a row lock.
+//
+// Without lock_timeout, a connection blocked waiting on a lock waits forever:
+// the outbox projectors observed this directly, each stuck retrying the same
+// message and pinning a pool connection indefinitely, which starved every
+// other query sharing the pool and took the whole app down without ever
+// crashing or logging an error. Bounding the wait turns that into an
+// ordinary failed statement the caller already handles (a retried outbox
+// delivery, a failed request), and the connection goes back to the pool
+// either way.
+func postgresPoolConfig(databaseURL string) (*pgxpool.Config, error) {
+	poolConfig, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		return nil, err
+	}
+	poolConfig.ConnConfig.RuntimeParams["lock_timeout"] = "10s"
+	return poolConfig, nil
+}
+
 // applicationStores builds the outbound adapters, choosing PostgreSQL when a
 // database URL is configured and in-memory equivalents otherwise.
 func applicationStores(cfg config.BillPiggyAppConfig, healthRegistry *health.Registry) stores {
@@ -440,7 +460,12 @@ func applicationStores(cfg config.BillPiggyAppConfig, healthRegistry *health.Reg
 		slog.Warn("using in-memory storage; set DATABASE_URL for persistent data")
 		return memoryStores()
 	}
-	pool, err := pgxpool.New(context.Background(), cfg.DatabaseURL)
+	poolConfig, err := postgresPoolConfig(cfg.DatabaseURL)
+	if err != nil {
+		slog.Error("parse postgres DSN", "error", err)
+		os.Exit(1)
+	}
+	pool, err := pgxpool.NewWithConfig(context.Background(), poolConfig)
 	if err != nil {
 		slog.Error("connect postgres", "error", err)
 		os.Exit(1)
