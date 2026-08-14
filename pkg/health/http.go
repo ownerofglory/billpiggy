@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"sort"
 	"strings"
@@ -86,6 +87,12 @@ func (r *Registry) Ready(w http.ResponseWriter, request *http.Request) {
 	failed := make([]string, 0)
 	for name, check := range checks {
 		if err := check(request.Context()); err != nil {
+			// The failed check name alone (what the probe response carries)
+			// tells an operator nothing kubectl describe pod doesn't already
+			// show; logging the underlying error here is what turns a
+			// recurring "readyz returns 503" into something diagnosable
+			// without reproducing the failure live.
+			slog.Warn("readiness check failed", "check", name, "error", err)
 			failed = append(failed, name)
 		}
 	}
