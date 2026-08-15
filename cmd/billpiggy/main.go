@@ -86,6 +86,7 @@ type stores struct {
 	payments      outbound.ScheduledPaymentRepository
 	events        outbound.EventStore
 	outboxStore   outbox.Store
+	outboxAdmin   outbound.OutboxAdminRepository
 	subscriptions subscriptionRegistrar
 	// pool is non-nil only in the PostgreSQL configuration. It backs the
 	// durable rate limiter and its cleanup; nothing else should reach for it
@@ -201,6 +202,11 @@ func main() {
 	adminUsageService, err := service.NewAdminUsageService(adapters.identity, adapters.aiRequests, adapters.notifications, adapters.audit)
 	if err != nil {
 		slog.Error("configure admin usage", "error", err)
+		os.Exit(1)
+	}
+	outboxAdminService, err := service.NewOutboxAdminService(adapters.outboxAdmin)
+	if err != nil {
+		slog.Error("configure outbox administration", "error", err)
 		os.Exit(1)
 	}
 	if err := startProjections(ctx, adapters, healthRegistry); err != nil {
@@ -339,6 +345,7 @@ func main() {
 	handler.RegisterReportRoutes(r, reportService, objectStore, handler.NewAuthMiddleware(authService))
 	handler.RegisterAuditRoutes(r, auditService, handler.NewAuthMiddleware(authService))
 	handler.RegisterAdminUsageRoutes(r, adminUsageService, handler.NewAuthMiddleware(authService))
+	handler.RegisterAdminOutboxRoutes(r, outboxAdminService, handler.NewAuthMiddleware(authService))
 	r.Get("/livez", healthRegistry.Live)
 	r.Get("/readyz", healthRegistry.Ready)
 	r.Get("/startupz", healthRegistry.Startup)
@@ -378,6 +385,10 @@ func main() {
 	slog.Info("App finished")
 }
 
+// projectionStallThreshold is how long a subscription may hold deliverable
+// work without progressing before billpiggy_outbox_stalled reports it.
+const projectionStallThreshold = 2 * time.Minute
+
 // startProjections registers every outbox subscription and runs an engine for
 // each, exposing its progress as a readiness check.
 //
@@ -409,7 +420,24 @@ func startProjections(ctx context.Context, adapters stores, healthRegistry *heal
 		if err != nil {
 			return fmt.Errorf("build engine %s: %w", projection.Name(), err)
 		}
-		healthRegistry.Register("projector_"+projection.Name(), engine.Health(2*time.Minute))
+		// Deliberately a gauge to alert on, not a readiness check.
+		//
+		// Read models are updated asynchronously: the HTTP API keeps serving
+		// correct results while a subscription runs behind, so a stalled
+		// projection is an operational problem, not a reason to refuse
+		// traffic. Gating /readyz on it turned a background-worker stall into
+		// a total outage — Kubernetes pulled the only replica out of the
+		// Service, and since what stalls a subscription lives in the database
+		// (a dead-lettered message permanently blocks its aggregate's later
+		// events), no restart could clear it. The pod stayed up, healthy, and
+		// unreachable indefinitely.
+		stalled := engine.Health(projectionStallThreshold)
+		healthRegistry.RegisterGauge(fmt.Sprintf(`billpiggy_outbox_stalled{subscription=%q}`, projection.Name()), "1 when a subscription has deliverable work it has stopped progressing on.", func() float64 {
+			if stalled(ctx) != nil {
+				return 1
+			}
+			return 0
+		})
 		healthRegistry.RegisterGauge(fmt.Sprintf(`billpiggy_outbox_lag{subscription=%q}`, projection.Name()), "Pending events for a subscription.", func() float64 { return float64(engine.Stats().Lag) })
 		healthRegistry.RegisterGauge(fmt.Sprintf(`billpiggy_outbox_dead_lettered{subscription=%q}`, projection.Name()), "Events abandoned after exhausting retry attempts.", func() float64 { return float64(engine.Stats().DeadLettered) })
 		go func(engine *outbox.Engine) {
@@ -433,6 +461,26 @@ func applicationObjectStore(cfg config.BillPiggyAppConfig, healthRegistry *healt
 	return store, nil
 }
 
+// postgresPoolConfig parses databaseURL and bounds how long a connection will
+// wait to acquire a row lock.
+//
+// Without lock_timeout, a connection blocked waiting on a lock waits forever:
+// the outbox projectors observed this directly, each stuck retrying the same
+// message and pinning a pool connection indefinitely, which starved every
+// other query sharing the pool and took the whole app down without ever
+// crashing or logging an error. Bounding the wait turns that into an
+// ordinary failed statement the caller already handles (a retried outbox
+// delivery, a failed request), and the connection goes back to the pool
+// either way.
+func postgresPoolConfig(databaseURL string) (*pgxpool.Config, error) {
+	poolConfig, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		return nil, err
+	}
+	poolConfig.ConnConfig.RuntimeParams["lock_timeout"] = "10s"
+	return poolConfig, nil
+}
+
 // applicationStores builds the outbound adapters, choosing PostgreSQL when a
 // database URL is configured and in-memory equivalents otherwise.
 func applicationStores(cfg config.BillPiggyAppConfig, healthRegistry *health.Registry) stores {
@@ -440,7 +488,12 @@ func applicationStores(cfg config.BillPiggyAppConfig, healthRegistry *health.Reg
 		slog.Warn("using in-memory storage; set DATABASE_URL for persistent data")
 		return memoryStores()
 	}
-	pool, err := pgxpool.New(context.Background(), cfg.DatabaseURL)
+	poolConfig, err := postgresPoolConfig(cfg.DatabaseURL)
+	if err != nil {
+		slog.Error("parse postgres DSN", "error", err)
+		os.Exit(1)
+	}
+	pool, err := pgxpool.NewWithConfig(context.Background(), poolConfig)
 	if err != nil {
 		slog.Error("connect postgres", "error", err)
 		os.Exit(1)
@@ -480,6 +533,7 @@ func applicationStores(cfg config.BillPiggyAppConfig, healthRegistry *health.Reg
 		payments:      postgresadapter.NewScheduledPaymentRepository(pool),
 		events:        postgresadapter.NewEventStore(pool),
 		outboxStore:   outboxStore,
+		outboxAdmin:   outboxStore,
 		subscriptions: outboxStore,
 		pool:          pool,
 		close:         pool.Close,
@@ -522,6 +576,7 @@ func memoryStores() stores {
 		payments:      payments,
 		events:        events,
 		outboxStore:   events,
+		outboxAdmin:   events,
 		subscriptions: events,
 		close:         func() {},
 	}

@@ -214,9 +214,13 @@ func TestEngineBlocksLaterEventsOfADeadLetteredAggregate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("lag: %v", err)
 	}
-	// expense-1's second event stays pending behind its dead-lettered sibling.
-	if lag != 1 {
-		t.Fatalf("lag = %d, want 1 message held behind the dead letter", lag)
+	// expense-1's second event is still parked behind its dead-lettered
+	// sibling — that is the ordering guarantee asserted above — but it is not
+	// lag, because no amount of healthy processing will ever deliver it.
+	// Counting it made every lag-based alarm fire forever after one poison
+	// event.
+	if lag != 0 {
+		t.Fatalf("lag = %d, want 0: a message parked behind a dead letter is not deliverable work", lag)
 	}
 }
 
@@ -308,7 +312,18 @@ func TestEngineHealthRecoversAfterDeadLetter(t *testing.T) {
 	}
 }
 
-func TestEngineHealthFailsWhileADeadLetterBlocksItsAggregate(t *testing.T) {
+// TestEngineHealthRecoversWhileADeadLetterBlocksItsAggregate reproduces the
+// production outage this behaviour caused. A poisoned expense event
+// dead-letters, which permanently blocks the later events for that same
+// expense. Those events stay 'pending' in the database forever, so a lag-based
+// staleness check failed from then on — every readiness probe returned 503,
+// Kubernetes pulled the only replica out of the Service, and because the dead
+// row lives in the database no restart could clear it. The pod stayed up,
+// healthy, and unreachable.
+//
+// A message that can never be delivered is not a backlog, so it must not hold
+// the subscription "stalled" forever.
+func TestEngineHealthRecoversWhileADeadLetterBlocksItsAggregate(t *testing.T) {
 	t.Parallel()
 	clock := &testClock{now: time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC)}
 	store := memory.NewEventStore().WithClock(clock.Now)
@@ -330,11 +345,12 @@ func TestEngineHealthFailsWhileADeadLetterBlocksItsAggregate(t *testing.T) {
 	if _, err := engine.Step(context.Background()); err != nil {
 		t.Fatalf("step: %v", err)
 	}
-	// The dead-lettered message's sibling stays pending behind it, so the
-	// subscription is genuinely stuck once that outlasts the staleness window.
+	// Well past any staleness window: the sibling is still parked behind the
+	// dead letter and always will be, so this must report healthy rather than
+	// stalling permanently.
 	clock.advance(2 * time.Hour)
-	if err := engine.Health(time.Hour)(context.Background()); err == nil {
-		t.Fatal("an event stuck behind a dead-lettered sibling must fail the readiness check")
+	if err := engine.Health(time.Hour)(context.Background()); err != nil {
+		t.Fatalf("an event permanently parked behind a dead letter must not stall the subscription forever: %v", err)
 	}
 }
 

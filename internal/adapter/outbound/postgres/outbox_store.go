@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/ownerofglory/billpiggy/internal/core/domain"
 	"github.com/ownerofglory/billpiggy/pkg/outbox"
 	"github.com/ownerofglory/billpiggy/pkg/pgxtx"
 )
@@ -226,43 +227,109 @@ func (s *OutboxStore) fail(ctx context.Context, message outbox.Message, policy o
 	return outbox.Result{Status: status, Message: message, Err: cause}, nil
 }
 
-// Lag reports how many messages are still pending for a subscription.
+// Lag reports how much deliverable work a subscription still has.
+//
+// Messages sitting behind a dead-lettered message for the same aggregate are
+// excluded, because claim will never hand them out: its ordering guard blocks
+// a message while an earlier one for the same aggregate is 'pending' or
+// 'dead', and a dead one never resolves on its own. Counting them reported a
+// backlog that could not move no matter how healthy the subscription was,
+// which made lag-based staleness alarms fire permanently after a single
+// poison event. Those messages are still visible as dead letters, via
+// DeadLetters and the billpiggy_outbox_dead_lettered gauge.
 func (s *OutboxStore) Lag(ctx context.Context, subscription string) (int64, error) {
 	if s.pool == nil {
 		return 0, errors.New("postgres pool is required")
 	}
 	var pending int64
-	if err := s.pool.QueryRow(ctx, `select count(*) from events.outbox where subscription = $1 and status = 'pending'`, subscription).Scan(&pending); err != nil {
+	if err := s.pool.QueryRow(ctx, `
+		select count(*)
+		  from events.outbox o
+		 where o.subscription = $1
+		   and o.status = 'pending'
+		   and not exists (
+		         select 1
+		           from events.outbox blocked
+		          where blocked.subscription   = o.subscription
+		            and blocked.aggregate_type = o.aggregate_type
+		            and blocked.aggregate_id   = o.aggregate_id
+		            and blocked.global_seq     < o.global_seq
+		            and blocked.status         = 'dead'
+		       )`, subscription).Scan(&pending); err != nil {
 		return 0, fmt.Errorf("read outbox lag: %w", err)
 	}
 	return pending, nil
 }
 
-// DeadLetters returns messages abandoned for a subscription, newest first, so
-// operators can inspect why a projection stalled.
-func (s *OutboxStore) DeadLetters(ctx context.Context, subscription string, limit int) ([]outbox.Message, error) {
+// ListDeadLetters returns deliveries abandoned for a subscription, newest
+// first, so operators can see why a projection stopped. An empty subscription
+// returns them across every subscription.
+//
+// blocked_count counts the later messages for the same aggregate that this
+// dead letter is holding up, which is what the delivery ordering guard in
+// claimStatement blocks and what makes an unresolved dead letter expensive.
+func (s *OutboxStore) ListDeadLetters(ctx context.Context, subscription string, limit int) ([]domain.DeadLetter, error) {
+	if s.pool == nil {
+		return nil, errors.New("postgres pool is required")
+	}
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
 	rows, err := pgxtx.From(ctx, s.pool).Query(ctx, `
-		select o.id::text, o.event_id::text, o.global_seq, o.aggregate_type, o.aggregate_id::text,
-		       o.attempts, o.replay, e.event_type, e.payload, e.metadata, e.occurred_at, e.aggregate_version
+		select o.id::text, o.subscription, o.event_id::text, e.event_type,
+		       o.aggregate_type, o.aggregate_id::text, o.attempts,
+		       coalesce(o.last_error, ''), e.occurred_at,
+		       coalesce(o.dead_lettered_at, now()),
+		       (select count(*)
+		          from events.outbox later
+		         where later.subscription   = o.subscription
+		           and later.aggregate_type = o.aggregate_type
+		           and later.aggregate_id   = o.aggregate_id
+		           and later.global_seq     > o.global_seq
+		           and later.status         = 'pending')
 		  from events.outbox o join events.events e on e.id = o.event_id
-		 where o.subscription = $1 and o.status = 'dead'
+		 where ($1 = '' or o.subscription = $1) and o.status = 'dead'
 		 order by o.dead_lettered_at desc limit $2`, subscription, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list dead letters: %w", err)
 	}
 	defer rows.Close()
-	messages := make([]outbox.Message, 0)
+	letters := make([]domain.DeadLetter, 0)
 	for rows.Next() {
-		var message outbox.Message
-		if err := rows.Scan(&message.OutboxID, &message.EventID, &message.GlobalSeq, &message.AggregateType,
-			&message.AggregateID, &message.Attempts, &message.Replay, &message.EventType, &message.Payload,
-			&message.Metadata, &message.OccurredAt, &message.AggregateVersion); err != nil {
+		var letter domain.DeadLetter
+		if err := rows.Scan(&letter.OutboxID, &letter.Subscription, &letter.EventID, &letter.EventType,
+			&letter.AggregateType, &letter.AggregateID, &letter.Attempts, &letter.LastError,
+			&letter.OccurredAt, &letter.DeadLetteredAt, &letter.BlockedCount); err != nil {
 			return nil, err
 		}
-		messages = append(messages, message)
+		letters = append(letters, letter)
 	}
-	return messages, rows.Err()
+	return letters, rows.Err()
+}
+
+// RequeueDeadLetter puts an abandoned delivery back on the queue.
+//
+// attempts resets to zero so the message gets a full fresh retry budget rather
+// than dead-lettering again on its first failure, and available_at is cleared
+// so it is picked up on the next poll. Nothing else needs unblocking: the
+// messages waiting behind it become claimable again automatically once this
+// row stops being 'dead'.
+func (s *OutboxStore) RequeueDeadLetter(ctx context.Context, outboxID string) (bool, error) {
+	if s.pool == nil {
+		return false, errors.New("postgres pool is required")
+	}
+	tag, err := pgxtx.From(ctx, s.pool).Exec(ctx, `
+		update events.outbox
+		   set status           = 'pending',
+		       attempts         = 0,
+		       available_at     = now(),
+		       dead_lettered_at = null,
+		       locked_at        = null,
+		       locked_by        = null,
+		       last_error       = null
+		 where id = $1 and status = 'dead'`, outboxID)
+	if err != nil {
+		return false, fmt.Errorf("requeue dead letter %s: %w", outboxID, err)
+	}
+	return tag.RowsAffected() > 0, nil
 }
