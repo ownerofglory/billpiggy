@@ -130,12 +130,15 @@ func TestOutboxStoreRetriesThenDeadLetters(t *testing.T) {
 	if lag, err := store.Lag(context.Background(), handler.Name()); err != nil || lag != 0 {
 		t.Fatalf("lag = %d, %v; want 0", lag, err)
 	}
-	letters, err := store.DeadLetters(context.Background(), handler.Name(), 10)
+	letters, err := store.ListDeadLetters(context.Background(), handler.Name(), 10)
 	if err != nil {
 		t.Fatalf("list dead letters: %v", err)
 	}
 	if len(letters) != 1 || letters[0].EventType != "expense_added" {
 		t.Fatalf("dead letters = %#v", letters)
+	}
+	if letters[0].LastError != "projection exploded" {
+		t.Fatalf("LastError = %q, want the handler failure that abandoned it", letters[0].LastError)
 	}
 }
 
@@ -490,4 +493,91 @@ func drainPostgresEngine(t *testing.T, engine *outbox.Engine, limit int) {
 		}
 	}
 	t.Fatalf("engine did not drain within %d steps", limit)
+}
+
+// TestOutboxStoreDeadLetterInspectionAndRequeue covers the operator recovery
+// path for a stalled projection. Once a message stops being claimable nothing
+// is logged any more, so last_error in the database is the only surviving
+// record of why the subscription stopped — and requeuing has to release the
+// messages the dead letter was holding back, not just itself.
+func TestOutboxStoreDeadLetterInspectionAndRequeue(t *testing.T) {
+	pool := newPool(t)
+	store := postgresadapter.NewOutboxStore(pool)
+	owner := seedUser(t, pool, "owner@example.test")
+	handler := &collectingHandler{name: "recoverable", failWith: errors.New("expense has no category")}
+	if err := store.EnsureSubscription(context.Background(), handler.Name()); err != nil {
+		t.Fatalf("register subscription: %v", err)
+	}
+	policy := outbox.Policy{MaxAttempts: 1, BaseBackoff: time.Nanosecond, MaxBackoff: time.Nanosecond, LeaseTTL: time.Minute}
+	engine, err := outbox.NewEngine(store, handler, outbox.Options{Policy: policy})
+	if err != nil {
+		t.Fatalf("build engine: %v", err)
+	}
+
+	poisoned := uuid.NewString()
+	appendEvent(t, pool, "expense", poisoned, "expense_added", owner, map[string]string{"expense_id": poisoned})
+	appendEvent(t, pool, "expense", poisoned, "expense_updated", owner, map[string]string{"expense_id": poisoned})
+	if result, err := engine.Step(context.Background()); err != nil || result.Status != outbox.DeadLettered {
+		t.Fatalf("step = %s, %v; want dead-lettered", result.Status, err)
+	}
+
+	letters, err := store.ListDeadLetters(context.Background(), "", 50)
+	if err != nil {
+		t.Fatalf("list dead letters: %v", err)
+	}
+	if len(letters) != 1 {
+		t.Fatalf("returned %d dead letters, want 1", len(letters))
+	}
+	if letters[0].LastError != "expense has no category" {
+		t.Fatalf("LastError = %q, want the handler failure recorded on the row", letters[0].LastError)
+	}
+	if letters[0].AggregateID != poisoned || letters[0].Subscription != handler.Name() {
+		t.Fatalf("dead letter identifies %s/%s, want %s/%s", letters[0].Subscription, letters[0].AggregateID, handler.Name(), poisoned)
+	}
+	if letters[0].BlockedCount != 1 {
+		t.Fatalf("BlockedCount = %d, want the one successor held behind it", letters[0].BlockedCount)
+	}
+	if letters[0].DeadLetteredAt.IsZero() {
+		t.Fatal("DeadLetteredAt must record when the delivery was abandoned")
+	}
+
+	// Nothing is deliverable while the dead letter stands.
+	if lag, err := store.Lag(context.Background(), handler.Name()); err != nil || lag != 0 {
+		t.Fatalf("lag = %d, %v; want 0 before requeuing", lag, err)
+	}
+	requeued, err := store.RequeueDeadLetter(context.Background(), letters[0].OutboxID)
+	if err != nil {
+		t.Fatalf("requeue: %v", err)
+	}
+	if !requeued {
+		t.Fatal("requeue reported no matching dead delivery")
+	}
+	// Both the requeued message and the successor it was blocking are back.
+	if lag, err := store.Lag(context.Background(), handler.Name()); err != nil || lag != 2 {
+		t.Fatalf("lag = %d, %v; want 2 deliverable messages after requeuing", lag, err)
+	}
+
+	// With the cause fixed the subscription drains on its own, no redeploy.
+	handler.mu.Lock()
+	handler.failWith = nil
+	handler.mu.Unlock()
+	drainPostgresEngine(t, engine, 10)
+	if got := handler.events(); len(got) != 2 {
+		t.Fatalf("delivered %v, want both events once the dead letter was requeued", got)
+	}
+	if lag, err := store.Lag(context.Background(), handler.Name()); err != nil || lag != 0 {
+		t.Fatalf("lag = %d, %v; want a fully drained subscription", lag, err)
+	}
+}
+
+func TestOutboxStoreRequeueReportsAnUnknownDeadLetter(t *testing.T) {
+	pool := newPool(t)
+	store := postgresadapter.NewOutboxStore(pool)
+	requeued, err := store.RequeueDeadLetter(context.Background(), uuid.NewString())
+	if err != nil {
+		t.Fatalf("requeue: %v", err)
+	}
+	if requeued {
+		t.Fatal("requeue reported success for an id that does not exist")
+	}
 }

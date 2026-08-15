@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ownerofglory/billpiggy/internal/core/domain"
 	"github.com/ownerofglory/billpiggy/internal/core/port/outbound"
 	"github.com/ownerofglory/billpiggy/pkg/outbox"
 )
@@ -23,14 +24,15 @@ const (
 
 // delivery is one message queued for one subscription.
 type delivery struct {
-	subscription string
-	event        *storedEvent
-	status       deliveryStatus
-	attempts     int
-	availableAt  time.Time
-	lockedAt     time.Time
-	replay       bool
-	lastError    string
+	subscription   string
+	event          *storedEvent
+	status         deliveryStatus
+	attempts       int
+	availableAt    time.Time
+	lockedAt       time.Time
+	deadLetteredAt time.Time
+	replay         bool
+	lastError      string
 }
 
 // storedEvent is an appended event with its assigned global order.
@@ -144,7 +146,7 @@ func (s *EventStore) ProcessNext(ctx context.Context, subscription string, aggre
 	claimed.lockedAt, claimed.lastError = time.Time{}, err.Error()
 	claimed.availableAt = s.now().Add(policy.RetryDelay(claimed.attempts))
 	if claimed.attempts >= policy.MaxAttempts {
-		claimed.status = deliveryDead
+		claimed.status, claimed.deadLetteredAt = deliveryDead, s.now()
 		return outbox.Result{Status: outbox.DeadLettered, Message: message, Err: err}, nil
 	}
 	return outbox.Result{Status: outbox.Retried, Message: message, Err: err}, nil
@@ -248,6 +250,83 @@ func (s *EventStore) Lag(_ context.Context, subscription string) (int64, error) 
 		pending++
 	}
 	return pending, nil
+}
+
+// ListDeadLetters returns abandoned deliveries, newest first, across every
+// subscription when subscription is empty.
+func (s *EventStore) ListDeadLetters(_ context.Context, subscription string, limit int) ([]domain.DeadLetter, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	letters := make([]domain.DeadLetter, 0)
+	for _, value := range s.deliveries {
+		if value.status != deliveryDead {
+			continue
+		}
+		if subscription != "" && value.subscription != subscription {
+			continue
+		}
+		letters = append(letters, domain.DeadLetter{
+			OutboxID:       fmt.Sprintf("%s:%d", value.subscription, value.event.globalSeq),
+			Subscription:   value.subscription,
+			EventID:        value.event.event.ID,
+			EventType:      value.event.event.EventType,
+			AggregateType:  value.event.event.AggregateType,
+			AggregateID:    value.event.event.AggregateID,
+			Attempts:       value.attempts,
+			LastError:      value.lastError,
+			OccurredAt:     time.UnixMilli(value.event.event.OccurredAt).UTC(),
+			DeadLetteredAt: value.deadLetteredAt,
+			BlockedCount:   s.blockedCountLocked(value),
+		})
+	}
+	sort.Slice(letters, func(i, j int) bool { return letters[i].DeadLetteredAt.After(letters[j].DeadLetteredAt) })
+	if len(letters) > limit {
+		letters = letters[:limit]
+	}
+	return letters, nil
+}
+
+// RequeueDeadLetter returns an abandoned delivery to the queue with a fresh
+// attempt budget, reporting whether one with that id existed.
+func (s *EventStore) RequeueDeadLetter(_ context.Context, outboxID string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, value := range s.deliveries {
+		if value.status != deliveryDead {
+			continue
+		}
+		if fmt.Sprintf("%s:%d", value.subscription, value.event.globalSeq) != outboxID {
+			continue
+		}
+		value.status, value.attempts, value.lastError = deliveryPending, 0, ""
+		value.availableAt, value.lockedAt, value.deadLetteredAt = time.Time{}, time.Time{}, time.Time{}
+		return true, nil
+	}
+	return false, nil
+}
+
+// blockedCountLocked counts the later messages for the same aggregate this
+// dead letter is holding up. The caller must hold the mutex.
+func (s *EventStore) blockedCountLocked(candidate *delivery) int {
+	blocked := 0
+	for _, other := range s.deliveries {
+		if other == candidate || other.subscription != candidate.subscription {
+			continue
+		}
+		if other.event.event.AggregateType != candidate.event.event.AggregateType {
+			continue
+		}
+		if other.event.event.AggregateID != candidate.event.event.AggregateID {
+			continue
+		}
+		if other.event.globalSeq > candidate.event.globalSeq && other.status == deliveryPending {
+			blocked++
+		}
+	}
+	return blocked
 }
 
 // deadBlockedLocked reports whether an earlier message for the same aggregate

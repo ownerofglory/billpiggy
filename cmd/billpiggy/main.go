@@ -86,6 +86,7 @@ type stores struct {
 	payments      outbound.ScheduledPaymentRepository
 	events        outbound.EventStore
 	outboxStore   outbox.Store
+	outboxAdmin   outbound.OutboxAdminRepository
 	subscriptions subscriptionRegistrar
 	// pool is non-nil only in the PostgreSQL configuration. It backs the
 	// durable rate limiter and its cleanup; nothing else should reach for it
@@ -201,6 +202,11 @@ func main() {
 	adminUsageService, err := service.NewAdminUsageService(adapters.identity, adapters.aiRequests, adapters.notifications, adapters.audit)
 	if err != nil {
 		slog.Error("configure admin usage", "error", err)
+		os.Exit(1)
+	}
+	outboxAdminService, err := service.NewOutboxAdminService(adapters.outboxAdmin)
+	if err != nil {
+		slog.Error("configure outbox administration", "error", err)
 		os.Exit(1)
 	}
 	if err := startProjections(ctx, adapters, healthRegistry); err != nil {
@@ -339,6 +345,7 @@ func main() {
 	handler.RegisterReportRoutes(r, reportService, objectStore, handler.NewAuthMiddleware(authService))
 	handler.RegisterAuditRoutes(r, auditService, handler.NewAuthMiddleware(authService))
 	handler.RegisterAdminUsageRoutes(r, adminUsageService, handler.NewAuthMiddleware(authService))
+	handler.RegisterAdminOutboxRoutes(r, outboxAdminService, handler.NewAuthMiddleware(authService))
 	r.Get("/livez", healthRegistry.Live)
 	r.Get("/readyz", healthRegistry.Ready)
 	r.Get("/startupz", healthRegistry.Startup)
@@ -526,6 +533,7 @@ func applicationStores(cfg config.BillPiggyAppConfig, healthRegistry *health.Reg
 		payments:      postgresadapter.NewScheduledPaymentRepository(pool),
 		events:        postgresadapter.NewEventStore(pool),
 		outboxStore:   outboxStore,
+		outboxAdmin:   outboxStore,
 		subscriptions: outboxStore,
 		pool:          pool,
 		close:         pool.Close,
@@ -568,6 +576,7 @@ func memoryStores() stores {
 		payments:      payments,
 		events:        events,
 		outboxStore:   events,
+		outboxAdmin:   events,
 		subscriptions: events,
 		close:         func() {},
 	}
