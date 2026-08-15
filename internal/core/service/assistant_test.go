@@ -86,6 +86,31 @@ func TestAssistantInstructionsScopeTheModelToBillPiggyDataOnly(t *testing.T) {
 	}
 }
 
+// TestAssistantInstructionsAskForMarkdownWithoutWeakeningTheRefusal covers the
+// two halves of the formatting guidance that can silently regress: the client
+// renders Markdown, so the model has to be told it may use it, and the refusal
+// has to stay a bare sentence — a model left to format freely will wrap it in
+// a heading or bold, and it should read identically however it is reached.
+func TestAssistantInstructionsAskForMarkdownWithoutWeakeningTheRefusal(t *testing.T) {
+	t.Parallel()
+	provider := memory.NewAIProvider("ok")
+	assistant, _ := newAssistant(t, provider)
+	if _, err := assistant.Ask(context.Background(), "owner-1", "question"); err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	system := strings.ToLower(*provider.Requests()[0].Messages[0].Text)
+	for _, phrase := range []string{"answer in markdown", "use a table when", "plain text with no markdown"} {
+		if !strings.Contains(system, phrase) {
+			t.Fatalf("system prompt missing formatting phrase %q: %s", phrase, system)
+		}
+	}
+	// The scope-limiting paragraph must stay last: it is the instruction most
+	// prone to being diluted, and appending anything after it buries it.
+	if strings.Index(system, "answer in markdown") > strings.Index(system, "stay strictly within this scope") {
+		t.Fatal("formatting guidance must come before the scope-limiting paragraph, not after it")
+	}
+}
+
 func TestAskDeclaresQueryToolsUpFront(t *testing.T) {
 	t.Parallel()
 	// No expense or budget data is pushed into the prompt any more; the model
