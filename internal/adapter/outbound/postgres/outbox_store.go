@@ -226,13 +226,35 @@ func (s *OutboxStore) fail(ctx context.Context, message outbox.Message, policy o
 	return outbox.Result{Status: status, Message: message, Err: cause}, nil
 }
 
-// Lag reports how many messages are still pending for a subscription.
+// Lag reports how much deliverable work a subscription still has.
+//
+// Messages sitting behind a dead-lettered message for the same aggregate are
+// excluded, because claim will never hand them out: its ordering guard blocks
+// a message while an earlier one for the same aggregate is 'pending' or
+// 'dead', and a dead one never resolves on its own. Counting them reported a
+// backlog that could not move no matter how healthy the subscription was,
+// which made lag-based staleness alarms fire permanently after a single
+// poison event. Those messages are still visible as dead letters, via
+// DeadLetters and the billpiggy_outbox_dead_lettered gauge.
 func (s *OutboxStore) Lag(ctx context.Context, subscription string) (int64, error) {
 	if s.pool == nil {
 		return 0, errors.New("postgres pool is required")
 	}
 	var pending int64
-	if err := s.pool.QueryRow(ctx, `select count(*) from events.outbox where subscription = $1 and status = 'pending'`, subscription).Scan(&pending); err != nil {
+	if err := s.pool.QueryRow(ctx, `
+		select count(*)
+		  from events.outbox o
+		 where o.subscription = $1
+		   and o.status = 'pending'
+		   and not exists (
+		         select 1
+		           from events.outbox blocked
+		          where blocked.subscription   = o.subscription
+		            and blocked.aggregate_type = o.aggregate_type
+		            and blocked.aggregate_id   = o.aggregate_id
+		            and blocked.global_seq     < o.global_seq
+		            and blocked.status         = 'dead'
+		       )`, subscription).Scan(&pending); err != nil {
 		return 0, fmt.Errorf("read outbox lag: %w", err)
 	}
 	return pending, nil

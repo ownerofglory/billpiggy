@@ -236,11 +236,42 @@ func (s *EventStore) Lag(_ context.Context, subscription string) (int64, error) 
 	defer s.mu.Unlock()
 	var pending int64
 	for _, value := range s.deliveries {
-		if value.subscription == subscription && value.status == deliveryPending {
-			pending++
+		if value.subscription != subscription || value.status != deliveryPending {
+			continue
 		}
+		// Messages parked behind a dead letter can never be claimed, so they
+		// are not lag: counting them reports a backlog no amount of healthy
+		// processing can drain. See OutboxStore.Lag for the full reasoning.
+		if s.deadBlockedLocked(value) {
+			continue
+		}
+		pending++
 	}
 	return pending, nil
+}
+
+// deadBlockedLocked reports whether an earlier message for the same aggregate
+// was dead-lettered, which blocks this one permanently. The caller must hold
+// the mutex.
+func (s *EventStore) deadBlockedLocked(candidate *delivery) bool {
+	for _, other := range s.deliveries {
+		if other == candidate || other.subscription != candidate.subscription {
+			continue
+		}
+		if other.event.event.AggregateType != candidate.event.event.AggregateType {
+			continue
+		}
+		if other.event.event.AggregateID != candidate.event.event.AggregateID {
+			continue
+		}
+		if other.event.globalSeq >= candidate.event.globalSeq {
+			continue
+		}
+		if other.status == deliveryDead {
+			return true
+		}
+	}
+	return false
 }
 
 // Events returns a copy of the appended events to prevent tests mutating the store.

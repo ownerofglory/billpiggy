@@ -378,6 +378,10 @@ func main() {
 	slog.Info("App finished")
 }
 
+// projectionStallThreshold is how long a subscription may hold deliverable
+// work without progressing before billpiggy_outbox_stalled reports it.
+const projectionStallThreshold = 2 * time.Minute
+
 // startProjections registers every outbox subscription and runs an engine for
 // each, exposing its progress as a readiness check.
 //
@@ -409,7 +413,24 @@ func startProjections(ctx context.Context, adapters stores, healthRegistry *heal
 		if err != nil {
 			return fmt.Errorf("build engine %s: %w", projection.Name(), err)
 		}
-		healthRegistry.Register("projector_"+projection.Name(), engine.Health(2*time.Minute))
+		// Deliberately a gauge to alert on, not a readiness check.
+		//
+		// Read models are updated asynchronously: the HTTP API keeps serving
+		// correct results while a subscription runs behind, so a stalled
+		// projection is an operational problem, not a reason to refuse
+		// traffic. Gating /readyz on it turned a background-worker stall into
+		// a total outage — Kubernetes pulled the only replica out of the
+		// Service, and since what stalls a subscription lives in the database
+		// (a dead-lettered message permanently blocks its aggregate's later
+		// events), no restart could clear it. The pod stayed up, healthy, and
+		// unreachable indefinitely.
+		stalled := engine.Health(projectionStallThreshold)
+		healthRegistry.RegisterGauge(fmt.Sprintf(`billpiggy_outbox_stalled{subscription=%q}`, projection.Name()), "1 when a subscription has deliverable work it has stopped progressing on.", func() float64 {
+			if stalled(ctx) != nil {
+				return 1
+			}
+			return 0
+		})
 		healthRegistry.RegisterGauge(fmt.Sprintf(`billpiggy_outbox_lag{subscription=%q}`, projection.Name()), "Pending events for a subscription.", func() float64 { return float64(engine.Stats().Lag) })
 		healthRegistry.RegisterGauge(fmt.Sprintf(`billpiggy_outbox_dead_lettered{subscription=%q}`, projection.Name()), "Events abandoned after exhausting retry attempts.", func() float64 { return float64(engine.Stats().DeadLettered) })
 		go func(engine *outbox.Engine) {

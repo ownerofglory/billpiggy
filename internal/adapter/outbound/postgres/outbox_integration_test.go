@@ -180,6 +180,18 @@ func TestOutboxStoreBlocksSuccessorsOfADeadLetter(t *testing.T) {
 	if pending != 1 {
 		t.Fatalf("pending = %d, want the successor held behind the dead letter", pending)
 	}
+	// ...but it is not deliverable work, and Lag must not report it as such.
+	// Counting it is what took production down: the row stays 'pending'
+	// forever, so a lag-based staleness check failed on every probe from then
+	// on, Kubernetes pulled the only replica out of the Service, and no
+	// restart could clear it because the dead row lives in the database.
+	lag, err := store.Lag(context.Background(), handler.Name())
+	if err != nil {
+		t.Fatalf("lag: %v", err)
+	}
+	if lag != 0 {
+		t.Fatalf("Lag = %d, want 0: a message parked behind a dead letter can never be delivered", lag)
+	}
 }
 
 func TestOutboxStoreConcurrentWorkersDeliverEachMessageOnce(t *testing.T) {
